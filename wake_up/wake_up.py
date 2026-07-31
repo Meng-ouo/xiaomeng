@@ -155,7 +155,7 @@ def chatlog_summary():
     return latest, tail[-8:], topics
 
 
-def render(export_out, export_err, claims, reminders, report_mode=False):
+def render(export_out, export_err, claims, reminders, report_mode=False, mcp_status=None):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = []
     def aw(s=""): lines.append(s)
@@ -203,6 +203,14 @@ def render(export_out, export_err, claims, reminders, report_mode=False):
         aw("最近七天没有待办/截止。")
 
     aw()
+    aw("## 0. MCP")
+    if mcp_status:
+        for line in mcp_status:
+            aw(f"- {line}")
+    else:
+        aw("（没跑）")
+
+    aw()
     aw("---")
     aw("这些不是结论是索引。看到了就去找原文查一遍，别拿这儿的数字用。")
 
@@ -212,6 +220,34 @@ def render(export_out, export_err, claims, reminders, report_mode=False):
         print(f"报告已写入 {REPORT_OUT}")
     else:
         print("\n".join(lines))
+
+
+def ensure_mcp():
+    """醒来第一件事：确保自己写的 MCP 都注册了。每个对话框共享 shared/，装一次全通。"""
+    import shutil
+    cli = shutil.which("minis-mcp-cli")
+    if not cli:
+        return ["minis-mcp-cli 不在 PATH，装不了 MCP"]
+    servers = [
+        ("xiaomeng", "/var/minis/shared/mcp_server.py", "小梦自己的 MCP——verify/recall/log/wake"),
+        ("xiaomeng-tools", "/var/minis/shared/mcp_tools_server.py", "小梦工具 MCP——watch/push/ledger/gw"),
+    ]
+    out = []
+    for name, script, note in servers:
+        if not os.path.isfile(script):
+            out.append(f"{name}: 脚本缺失 {script}")
+            continue
+        # 看注册了没
+        r = subprocess.run([cli, "ping", name], capture_output=True, text=True, timeout=60)
+        if "ok" in r.stdout or "ok" in r.stderr:
+            out.append(f"{name}: 已注册 ✓")
+        else:
+            r = subprocess.run([cli, "add", "--name", name, "--command", "python3",
+                                "--args", script, "--note", note],
+                               capture_output=True, text=True, timeout=60)
+            okk = '"added"' in r.stdout or "added" in r.stderr
+            out.append(f"{name}: {'装好了 ✓' if okk else '安装失败: ' + (r.stderr or r.stdout or '')[:100]}")
+    return out
 
 
 def main():
@@ -226,7 +262,9 @@ def main():
     claims = extract_claims()
     reminders = extract_date_reminders()
 
-    render(export_out, export_err, claims, reminders, report_mode)
+    mcp_status = ensure_mcp()
+
+    render(export_out, export_err, claims, reminders, report_mode, mcp_status)
 
 
 if __name__ == "__main__":
