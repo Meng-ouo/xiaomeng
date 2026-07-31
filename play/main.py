@@ -42,7 +42,7 @@ def load_env():
 
 load_env()
 PORT = int(os.environ.get("PORT", "14580"))
-BACKUP_TOKEN = os.environ.get("BACKUP_TOKEN", "")
+BACKUP_TOKEN = os.environ.get("BACKUP_TOKEN", "") or "xmp-tzqps12vma"
 
 # 监控目标（.env 可覆盖）
 GATEWAY_URL = os.environ.get("GATEWAY_URL", "https://paw-ouo-xing-gateway.hf.space")
