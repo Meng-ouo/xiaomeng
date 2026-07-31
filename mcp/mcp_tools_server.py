@@ -61,7 +61,9 @@ def tool_push(args):
         targets.append("zhangyiheng")
     out = []
     for t in targets:
-        d = os.path.join(BASE, "workspace", "xm_repo" if t == "xiaomeng" else "zyh_repo")
+        d = os.path.join(SHARED, "repos", t)
+        if not os.path.isdir(os.path.join(d, ".git")):
+            d = os.path.join(BASE, "workspace", "xm_repo" if t == "xiaomeng" else "zyh_repo")
         if not os.path.isdir(os.path.join(d, ".git")):
             out.append(f"{t}: 仓库目录不存在 {d}")
             continue
