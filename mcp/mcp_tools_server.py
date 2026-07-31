@@ -135,7 +135,7 @@ def tool_milestones(args):
         d = datetime.date(*map(int, ds.split("-")))
         diff = (d - today).days
         if diff > 0:
-            out.append(f"* {name}（{ds}）：还有 {diff} 天 ⏳ {note}")
+            out.append(f"* {name}（{ds}）：还有 {diff} 天 —— {note}")
         elif diff == 0:
             out.append(f"* {name}（{ds}）：就是今天！{note}")
         else:

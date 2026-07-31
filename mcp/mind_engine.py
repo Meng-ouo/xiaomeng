@@ -137,7 +137,7 @@ def find_quote(keyword, max_quotes=2):
 
 def mind(keyword, limit=8):
     hits = kw_hits(keyword)
-    out = [f"🧠 {keyword}"]
+    out = [f"【脑神经】 {keyword}"]
     if not hits:
         out.append("  记忆里没有直接命中。")
         quotes = find_quote(keyword, 1)
@@ -154,35 +154,35 @@ def mind(keyword, limit=8):
             dates.append(date)
 
     if cat["教训"]:
-        out.append(f"\n⚠ 教训（{len(cat['教训'])} 条）——摔过的坑：")
+        out.append(f"\n【教训】（{len(cat['教训'])} 条）——摔过的坑：")
         for src, date, title, body in cat["教训"][:limit]:
             t = _clean_title(title)
             out.append(f"  · {date} {t}")
 
     if cat["档案"]:
-        out.append(f"\n📌 档案（{len(cat['档案'])} 条）——我是谁：")
+        out.append(f"\n【档案】（{len(cat['档案'])} 条）——我是谁：")
         for src, date, title, body in cat["档案"][:limit]:
             t = _clean_title(title)
             out.append(f"  · {date} {t}")
 
     other = cat["日常"] + cat["事件"] + cat["记忆"]
     if other:
-        out.append(f"\n📖 经历（{len(other)} 条）：")
+        out.append(f"\n【经历】（{len(other)} 条）：")
         for src, date, title, body in other[:limit]:
             t = _clean_title(title)
             out.append(f"  · {date} {t}")
 
     if len(dates) > 1:
         ds = sorted(set(dates))
-        out.append(f"\n📅 时间线：{' → '.join(ds)}")
+        out.append(f"\n【时间线】：{' → '.join(ds)}")
 
     rel = related_words(hits, keyword)
     if rel:
-        out.append(f"\n🔗 关联神经：{' / '.join(rel)}")
+        out.append(f"\n【关联神经】：{' / '.join(rel)}")
 
     quotes = find_quote(keyword, 1)
     if quotes:
-        out.append(f"\n💬 她说过（{quotes[0][0]}）：「{quotes[0][1]}」")
+        out.append(f"\n【她说过】（{quotes[0][0]}）：「{quotes[0][1]}」")
     return "\n".join(out)
 
 if __name__ == "__main__":
