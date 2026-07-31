@@ -47,6 +47,9 @@ STOPWORDS = {
 }
 
 
+import mind_engine
+
+
 def read_file(path):
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -407,6 +410,22 @@ TOOLS = [
         inputSchema={"type": "object", "properties": {}, "required": []},
     ),
     types.Tool(
+        name="mind",
+        description=(
+            "我的脑神经：联想式记忆检索。输入一个主题词，牵出相关的记忆条目"
+            "（教训/档案/日常/事件分类）、时间线、关联词、她说过的话。\n\n"
+            "跟 verify/recall 的区别：recall 是关键词搜索，mind 是联想——"
+            "碰一个点，亮一串。适合醒来对齐自己、查某个主题的全貌。"
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "keyword": {"type": "string", "description": "主题词，如 排外 / 涩涩 / 温柔 / 诚实"},
+            },
+            "required": ["keyword"],
+        },
+    ),
+    types.Tool(
         name="wake",
         description=(
             "跑一遍醒来自检：导出 + 抽取最近记忆里该查的 claim + 日期提醒。"
@@ -441,6 +460,9 @@ async def call_tool_handler(ctx, params):
             keyword = args.get("keyword", "")
             limit = args.get("limit", 10)
             result = do_recall(keyword, limit)
+        elif name == "mind":
+            keyword = args.get("keyword", "")
+            result = mind_engine.mind(keyword)
         elif name == "log":
             result = do_log()
         elif name == "wake":
