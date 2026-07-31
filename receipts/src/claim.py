@@ -41,19 +41,16 @@ def clean(txt):
 
 def count(kw, who=None):
     """数一遍原文。who='user' 只数她说的，'assistant' 只数我说的，None 全数。
-    返回 (总次数, {日期·来源: 次数})"""
+    返回 (总次数, {日期·来源: 次数})。
+    口径统一：剔工具调用块，标题行不计数（跟 mcp_server._count_raw 一致）。"""
     per = {}
     for f in logfiles():
         txt = clean(open(f, encoding="utf-8", errors="ignore").read())
-        if who is None:
-            n = txt.count(kw)
-        else:
-            # 按 [时间] 角色 分段，只在指定角色的段里数
-            n = 0
-            for m in re.finditer(r"^\[\d\d:\d\d:\d\d\] (\w+).*?$([\s\S]*?)(?=^\[\d\d:\d\d:\d\d\] |\Z)",
-                                 txt, re.M):
-                if m.group(1) == who:
-                    n += m.group(2).count(kw)
+        n = 0
+        for m in re.finditer(r"^\[\d\d:\d\d:\d\d\] (\w+).*?$([\s\S]*?)(?=^\[\d\d:\d\d:\d\d\] |\Z)",
+                             txt, re.M):
+            if who is None or m.group(1) == who:
+                n += m.group(2).count(kw)
         if n:
             src = "K" if "kelivo" in f else "M"
             per[f"{os.path.basename(f)[:10]}·{src}"] = n

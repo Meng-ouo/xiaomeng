@@ -56,8 +56,25 @@ def read_file(path):
 
 
 # ── verify：查原文 ─────────────────────────────────────
+def _clean_tool_blocks(txt):
+    """剔掉工具调用块，跟 claim.py 同一口径。"""
+    txt = re.sub(r"\[Tool result:.*?\]", "", txt, flags=re.S)
+    txt = re.sub(r"\[Calling tool.*?\]", "", txt, flags=re.S)
+    return txt
+
+# 消息块正则：group(1)=说话人，group(2)=标题行后的正文（标题行被 .*?$ 吃掉）
+_BLOCK_RE = re.compile(
+    r"^\[\d\d:\d\d:\d\d\] (\w+).*?$([\s\S]*?)(?=^\[\d\d:\d\d:\d\d\] |\Z)",
+    re.M,
+)
+
+
 def _count_raw(directory, keyword, who="any", limit=8):
-    """数逐字原文里的出现次数 + 说话人分类 + 上下文片段。"""
+    """数逐字原文里的出现次数 + 说话人分类 + 上下文片段。
+
+    who: any=都数; user=只数她说的; assistant=只数我说的。
+    与 claim.py 同口径：剔工具调用块，标题行不计数。
+    """
     total = hers = mine = 0
     per_day = {}
     contexts = []
@@ -72,35 +89,37 @@ def _count_raw(directory, keyword, who="any", limit=8):
         txt = read_file(fpath)
         if not txt:
             continue
+        txt = _clean_tool_blocks(txt)
         date_key = fname.replace(".txt", "")
         day_count = 0
 
-        # 按 [HH:MM:SS] role <title> 切块
-        blocks = re.split(r"(?=\[\d\d:\d\d:\d\d\] )", txt)
-        for block in blocks:
-            lm = re.match(r"\[(\d\d:\d\d:\d\d)\] (\w+)", block)
-            if not lm:
-                continue
-            speaker = lm.group(2)
-            body = block[lm.end():]
+        for m in _BLOCK_RE.finditer(txt):
+            speaker = m.group(1)
+            body = m.group(2)
             n = body.count(keyword)
-            if n:
-                if speaker == "user":
-                    hers += n
-                elif speaker == "assistant":
-                    mine += n
-                total += n
-                day_count += n
+            if not n:
+                continue
+            if speaker == "user":
+                hers += n
+            elif speaker == "assistant":
+                mine += n
+            else:
+                continue
+            if who == "user" and speaker != "user":
+                continue
+            if who == "assistant" and speaker != "assistant":
+                continue
+            total += n
+            day_count += n
 
-                # 收集上下文片段
-                if len(contexts) < limit:
-                    lines = body.strip().split("\n")
-                    snippet = " ".join(l.strip() for l in lines[:3])[:200]
-                    contexts.append({
-                        "file": fname,
-                        "speaker": speaker,
-                        "snippet": snippet,
-                    })
+            # 收集上下文片段
+            if len(contexts) < limit:
+                snippet = " ".join(l.strip() for l in body.strip().split("\n")[:3])[:200]
+                contexts.append({
+                    "file": fname,
+                    "speaker": speaker,
+                    "snippet": snippet,
+                })
 
         if day_count:
             per_day[date_key] = day_count
