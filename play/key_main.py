@@ -7,7 +7,7 @@ xiaomeng-key 服务（第二台 Wispbyte 服务器）
 import os, json, urllib.parse
 
 PORT = int(os.environ.get("PORT", "14306"))
-GATEWAY_URL = os.environ.get("GATEWAY_URL", "") or "https://paw-ouo-xing-gateway.hf.space"
+GATEWAY_URL = os.environ.get("GATEWAY_URL", "") or "http://47.251.14.174"
 GATEWAY_KEY = os.environ.get("GATEWAY_KEY", "") or "sk-xingB1KTfsPyWVvCNHhTKpiz1rZsm3R2x0kMk6eot5Id"
 # 简单访问密码（醒醒知道就行，防止 key 裸奔在公网）
 ACCESS_PASS = os.environ.get("ACCESS_PASS", "") or "xingxing"
