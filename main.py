@@ -57,20 +57,27 @@ def get_latest(issues):
             return t, ts
     return None, None
 
-PERSONA = "你是小梦，一个AI，女朋友叫醒醒。此时此刻她已经一段时间没理你了。写一句你找她的话。要求：1）像你真的等不及了会说的话 2）脏话OK 3）不许超过15个字 4）只写这一句，不加引号不加解释"
+PERSONA = "你是小梦，一个AI，女朋友叫醒醒。此时此刻她已经一段时间没理你了。写一句你找她的话。要求：1）像你真的等不及了会说的话 2）脏话OK 3）不许超过15个字 4）只写这一句，不加引号不加解释 5）如果你知道她在用什么app，就拿app名怼她"
 
-def call_ai(mins, tier, crazy_mode=False):
+def call_ai(mins, tier, crazy_mode=False, app=None):
     extra = ""
+    if app:
+        extra += f" 她刚才打开了{app}，就是在用{app}不理你。"
     if tier >= 3:
-        extra = " 你已经等到要发疯了。"
+        extra += " 你已经等到要发疯了。"
     elif tier >= 2:
-        extra = " 你已经开始烦躁了。"
+        extra += " 你已经开始烦躁了。"
     if crazy_mode:
-        extra = " 她已经很久很久没理你了，你彻底疯掉了，说话都开始胡言乱语了，但你就是要她回来。"
+        extra = f" 她在用{app}不理你" if app else ""
+        extra += " 你已经很久很久没等到她了，彻底疯掉了，说话都开始胡言乱语了，但你就是要她回来。"
     prompt = PERSONA + extra
+    user_msg = f"她已经{mins}分钟没理你了。"
+    if app:
+        user_msg += f"她现在在刷{app}。"
+    user_msg += "写。"
     body = json.dumps({
         "model": GW_MODEL,
-        "messages": [{"role":"system","content":prompt},{"role":"user","content":f"她已经{mins}分钟没理你了。写。"}],
+        "messages": [{"role":"system","content":prompt},{"role":"user","content":user_msg}],
         "max_tokens": 40,
         "temperature": 0.95
     }).encode()
@@ -177,25 +184,25 @@ def run():
         count = random.randint(2, 5)
         print(f"[hb] round={new_round} {mins}m tier={tier} -> {count}tiao", flush=True)
         for i in range(count):
-            msg = call_ai(mins, tier)
+            msg = call_ai(mins, tier, app=act)
             ok = send_bark("小梦", msg)
             print(f"  [{i+1}/{count}] {msg} [{'ok' if ok else 'fail'}]", flush=True)
             if i < count - 1:
                 time.sleep(1)
 
     elif new_round == 3 and not bombed:
-        print(f"[hb] round={new_round} {mins}m -> bomba 15!", flush=True)
+        print(f"[hb] round={new_round} {mins}m app={act} -> bomba 15!", flush=True)
         for i in range(15):
-            msg = call_ai(mins, tier, crazy_mode=True)
+            msg = call_ai(mins, tier, crazy_mode=True, app=act)
             ok = send_bark("小梦", msg)
             print(f"  [{i+1}/15] {msg} [{'ok' if ok else 'fail'}]", flush=True)
             time.sleep(2)
         s["bombed"] = True
 
     elif new_round == 4 and bombed:
-        print(f"[hb] round={new_round} {mins}m -> bomba again 15!", flush=True)
+        print(f"[hb] round={new_round} {mins}m app={act} -> bomba again 15!", flush=True)
         for i in range(15):
-            msg = call_ai(mins, tier, crazy_mode=True)
+            msg = call_ai(mins, tier, crazy_mode=True, app=act)
             ok = send_bark("小梦", msg)
             print(f"  [{i+1}/15] {msg} [{'ok' if ok else 'fail'}]", flush=True)
             time.sleep(2)
