@@ -5,6 +5,19 @@
 # v2: 睡眠模式 —— 最新动向是"睡觉/晚安"信号时停推，醒来（新非睡眠动向）自动恢复
 import json, os, sys, subprocess, time
 from datetime import datetime, timezone
+from pathlib import Path
+
+# Wispbyte 把环境变量写进 .env 文件，但不在进程环境里——手动加载
+_env_path = Path("/home/container/.env")
+if _env_path.exists():
+    for line in _env_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k, v = k.strip(), v.strip().strip('"').strip("'")
+        if k and k not in os.environ:
+            os.environ[k] = v
 
 KEKE_REPO = "PouoO/keke"
 GH_TOKEN = os.environ.get("GITHUBKEKE_TOKEN", "")
