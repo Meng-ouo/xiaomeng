@@ -23,6 +23,8 @@ KEKE_REPO = "PouoO/keke"
 GH_TOKEN = os.environ.get("GITHUBKEKE_TOKEN", "")
 PUSH_CHANNELS = []  # 从环境变量 PUSH_CHANNELS 读，逗号分隔
 SLEEP_KEYWORDS = ("睡觉", "晚安", "睡了", "sleep", "goodnight", "不打扰", "免打扰", "睡啦")
+WAKE_KEYWORDS = ("醒了", "起床", "早安", "wake", "awake", "wakeup")
+SLEEP_HOURS = int(os.environ.get("SLEEP_HOURS", "12"))
 
 def parse_tiers(minutes):
     if minutes < 30: return 0, "在"
@@ -43,8 +45,10 @@ def fetch_issues():
     except Exception as e:
         return [], str(e)
 
-def check_sleep_signal(issues):
-    """最新一条有效动向是不是睡眠信号。是 → 睡眠模式"""
+def check_sleep_signal(issues, now):
+    """睡眠信号持久化：最近的控制信号如果是睡觉，就静默 SLEEP_HOURS；普通 app 动向不解除睡眠。"""
+    latest_sleep = None
+    latest_wake = None
     for i in issues:
         t = (i.get("title") or "").strip()
         if not t:
@@ -52,7 +56,28 @@ def check_sleep_signal(issues):
         low = t.lower()
         if "kelivo" in low or "test" in low:
             continue
-        return any(k in low for k in SLEEP_KEYWORDS), t
+        ts = i.get("created_at") or ""
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+        except:
+            continue
+        if any(k in low for k in SLEEP_KEYWORDS) and latest_sleep is None:
+            latest_sleep = (dt, t)
+        if any(k in low for k in WAKE_KEYWORDS) and latest_wake is None:
+            latest_wake = (dt, t)
+        if latest_sleep and latest_wake:
+            break
+
+    if not latest_sleep:
+        return False, None
+    sleep_dt, sleep_title = latest_sleep
+    if latest_wake and latest_wake[0] > sleep_dt:
+        return False, latest_wake[1]
+    age_hours = (now - sleep_dt).total_seconds() / 3600
+    if age_hours <= SLEEP_HOURS:
+        return True, sleep_title
     return False, None
 
 def get_latest_activity(issues, skip_sleep=False):
@@ -112,7 +137,7 @@ def run():
         print(f"[heartbeat] fetch issues: {status}")
         return
 
-    sleeping_now, sleep_title = check_sleep_signal(issues)
+    sleeping_now, sleep_title = check_sleep_signal(issues, now)
 
     activity, ts_str = get_latest_activity(issues, skip_sleep=sleeping_now)
     if not ts_str:
