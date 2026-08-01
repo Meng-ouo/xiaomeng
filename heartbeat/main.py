@@ -195,4 +195,9 @@ def run():
     json.dump(state, open(state_path, "w"), ensure_ascii=False, indent=1)
 
 if __name__ == "__main__":
-    run()
+    while True:
+        try:
+            run()
+        except Exception as e:
+            print(f"[heartbeat] error: {e}")
+        time.sleep(300)  # 每 5 分钟检查一次
