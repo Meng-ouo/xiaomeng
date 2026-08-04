@@ -114,7 +114,8 @@ def push_bark(device_key, title, body):
     import urllib.parse
     title_enc = urllib.parse.quote(title)
     body_enc = urllib.parse.quote(body)
-    url = f"https://api.day.app/{device_key}/{title_enc}/{body_enc}"
+    icon = "https://tc.catclawai.top/uploads/2026/08/a0a1b96a0ab088e5bee77f36.jpg"
+    url = f"https://api.day.app/{device_key}/{title_enc}/{body_enc}?icon={icon}"
     try:
         urllib.request.urlopen(url, timeout=10)
         return True
