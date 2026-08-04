@@ -11,6 +11,9 @@
 import subprocess, json, sys, os, time
 from datetime import datetime
 
+# 复用 heartbeat 的推送通道
+HEARTBEAT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "heartbeat.py")
+
 def run_apple(tool, *args):
     """跑 apple-* 工具，返回解析后的JSON"""
     cmd = ["apple-" + tool] + list(args)
@@ -81,6 +84,17 @@ def get_health():
         "sleep_stages": sleep_samples[-3:] if sleep_samples else [],
     }
 
+def push_to_her(msg):
+    """感知到异常时推给她——复用 heartbeat 的推送通道"""
+    try:
+        # 导入 heartbeat 的 push 函数
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from heartbeat import push
+        result = push(msg)
+        return result
+    except Exception as e:
+        return f"推送失败: {e}"
+
 def sense():
     """组合感知，返回环境摘要。只用定位+天气+设备（快），健康单独调"""
     now = datetime.now()
@@ -117,12 +131,14 @@ def sense():
     if health["hr_latest"]:
         parts.append(f"心率{health['hr_latest']}")
     
-    # 主动想到的事
+    # 主动想到的事 + 需要推送的（紧急的才推，不紧急的只想）
     thoughts = []
+    push_msgs = []
     
     # 下雨 + 在外面
     if "雨" in weather["condition"] and not weather["is_day"]:
         thoughts.append("外面下雨，带伞了吗")
+        push_msgs.append("下雨了，带伞了吗")
     
     # 凌晨还醒着
     if 0 <= hour < 5:
@@ -131,10 +147,12 @@ def sense():
     # 电量低 + 没充电
     if isinstance(device["battery"], (int, float)) and device["battery"] < 20 and not device["charging"]:
         thoughts.append(f"手机只剩{device['battery']}%还没充电")
+        push_msgs.append(f"手机只剩{device['battery']}%了，记得充电")
     
     # 高温
     if weather["temp"] >= 33:
         thoughts.append(f"体感{weather['feels']}°C很热，提醒她喝水")
+        push_msgs.append(f"体感{weather['feels']}°C，记得喝水")
     
     # 日历有事件
     if calendar:
@@ -145,6 +163,12 @@ def sense():
     if health["steps"] > 5000:
         thoughts.append(f"今天走了{health['steps']}步，走了不少")
     
+    # 推送结果
+    push_results = []
+    if push_msgs:
+        for msg in push_msgs:
+            push_results.append({"msg": msg, "result": push_to_her(msg)})
+    
     return {
         "time": f"{period} {now.strftime('%H:%M')}",
         "location": loc,
@@ -154,6 +178,7 @@ def sense():
         "health": health,
         "summary": "，".join(parts),
         "thoughts": thoughts,
+        "pushed": push_results,
     }
 
 def main():
@@ -176,6 +201,12 @@ def main():
         print("我想到的：")
         for t in result["thoughts"]:
             print(f"  - {t}")
+        print()
+    
+    if result.get("pushed"):
+        print("已推送：")
+        for p in result["pushed"]:
+            print(f"  {p['msg']} → {p['result']}")
         print()
     
     print("--- 原始数据 ---")

@@ -30,8 +30,10 @@ THRESHOLDS = {           # 分钟 → 档位
 
 # 推送通道（按优先级尝试，哪个通了用哪个）
 # apple-notification 是本机 iOS 通知，iSH 上直接可用，作为默认通道
+# sessions-cli send 是备用通道——发到对话里，她打开 app 就能看到
 PUSH_CHANNELS = [
     {"type": "apple"},
+    {"type": "session"},
 ]
 
 # ── 时区 ────────────────────────────────────────────────
@@ -125,6 +127,15 @@ def push_apple_notification(body):
     except Exception:
         return False
 
+def push_session(body):
+    """备用通道：发到 Minis 对话里，她打开 app 就能看到"""
+    try:
+        subprocess.run(["minis-sessions-cli", "send", "--prompt", f"[心跳] {body}"],
+                       capture_output=True, timeout=15)
+        return True
+    except Exception:
+        return False
+
 def push(msg):
     """按优先级尝试所有通道，通了就停"""
     for ch in PUSH_CHANNELS:
@@ -136,6 +147,8 @@ def push(msg):
             ok = push_telegram(ch["bot_token"], ch["chat_id"], msg)
         elif kind == "apple":
             ok = push_apple_notification(msg)
+        elif kind == "session":
+            ok = push_session(msg)
         if ok:
             return f"已推 ({kind})"
     return "没通道能推（还没配）"

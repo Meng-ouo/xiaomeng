@@ -38,6 +38,7 @@ XIAOMENG_MAP = {
     "skill_triage.py": "tools/skill_triage.py",
     "heartbeat.py": "tools/heartbeat.py",
     "checkon/checkon.py": "tools/checkon.py",
+    "dispatch.py": "tools/dispatch.py",
 }
 
 def run(cmd, cwd=None):
