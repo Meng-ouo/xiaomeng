@@ -39,6 +39,7 @@ XIAOMENG_MAP = {
     "heartbeat.py": "tools/heartbeat.py",
     "checkon/checkon.py": "tools/checkon.py",
     "dispatch.py": "tools/dispatch.py",
+    "preflight.py": "tools/preflight.py",
 }
 
 def run(cmd, cwd=None):
