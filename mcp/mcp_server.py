@@ -554,6 +554,24 @@ def do_wake(skip_export=False):
     lines.append(_my_her(snap))
     lines.append("")
 
+    # 环境感知——定位+天气+设备，主动想她可能需要什么
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("sense_mod", "/var/minis/shared/sense.py")
+        smod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(smod)
+        s = smod.sense()
+        env_lines = [s["summary"]]
+        if s.get("thoughts"):
+            env_lines.append("")
+            for t in s["thoughts"]:
+                env_lines.append(f"  - {t}")
+        lines.append("## 环境")
+        lines.append("\n".join(env_lines))
+        lines.append("")
+    except Exception:
+        pass  # 感知失败不挡醒来
+
     lines.append("## 我最近")
     lines.append(_my_self(snap))
     lines.append("")
