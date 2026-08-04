@@ -389,6 +389,153 @@ def _our_stuff(snap):
     return "\n".join("- " + p for p in parts)
 
 
+_thought_chain = []
+
+
+def do_smind(query, limit=8):
+    """语义搜索记忆——意思相近就能搜到，不用词一样。
+    recall（关键词）搜不到的，这个能搜到。代价是要等 embedding 网络调用（2-5秒）。"""
+    import importlib.util
+    try:
+        spec = importlib.util.spec_from_file_location("recall_semantic", "/var/minis/shared/recall.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        results = mod.search(query, limit)
+    except Exception as e:
+        return f"语义搜索出错：{e}"
+    if not results:
+        return f'语义搜索 "{query}" 没结果。索引可能需要重建（python3 recall.py --rebuild）。'
+    layer_names = {"daily": "日志", "drawers": "抽屉", "chatlog": "原文"}
+    lines = [f'语义搜索 "{query}" → {len(results)} 条（按相似度排序）：']
+    for score, chunk in results:
+        layer = layer_names.get(chunk.get("layer", ""), "?")
+        title = chunk.get("title", "")[:60]
+        source = chunk.get("source", "")[:40]
+        lines.append(f'  [{score:.3f}] {layer} | {title} | {source}')
+    lines.append('\n语义搜索能搜到换个说法的，但可能不够精确。要精确用 recall（关键词），要查原文用 verify。')
+    return '\n'.join(lines)
+
+
+def do_think(thought, thought_number, total_thoughts, next_thought_needed,
+             is_revision=False, revises_thought=None,
+             branch_from_thought=None, branch_id=None, needs_more_thoughts=False):
+    """结构化分步推理。每步调一次，把推理过程外化——比闷头想不容易漏。"""
+    def _bool(v):
+        if isinstance(v, bool):
+            return v
+        return str(v).lower() not in ("false", "0", "", "no")
+    thought_number = int(thought_number)
+    total_thoughts = int(total_thoughts)
+    next_thought_needed = _bool(next_thought_needed)
+    is_revision = _bool(is_revision)
+    needs_more_thoughts = _bool(needs_more_thoughts)
+    entry = {
+        "n": thought_number,
+        "total": total_thoughts,
+        "thought": thought,
+        "revision": is_revision,
+        "revises": revises_thought,
+        "branch_from": branch_from_thought,
+        "branch": branch_id,
+    }
+    _thought_chain.append(entry)
+
+    if needs_more_thoughts:
+        for t in _thought_chain:
+            t["total"] = max(t["total"], thought_number + 3)
+
+    lines = []
+    tag = ""
+    if is_revision:
+        tag = f" [修正第{revises_thought}步]"
+    elif branch_id:
+        tag = f" [分支{branch_id}，从第{branch_from_thought}步]"
+    lines.append(f"第 {thought_number}/{entry['total']} 步{tag}")
+    lines.append(thought)
+    lines.append("")
+    if next_thought_needed:
+        lines.append(f"→ 下一步（第 {thought_number + 1} 步）")
+    else:
+        lines.append("推理完成。")
+        lines.append(f"共 {len(_thought_chain)} 步。")
+    return "\n".join(lines)
+
+
+def do_lesson(task, limit=8):
+    """教训召回——干活前先看自己在这类事上栽过什么跟头。
+
+    数据源：lessons.md + daily 里的教训条目，按场景类型精确匹配。
+    """
+    import json as _json
+
+    index_path = "/var/minis/shared/lesson_index.json"
+    if not os.path.exists(index_path):
+        return "教训索引不存在。先运行: python3 /var/minis/shared/lesson_index.py --build"
+
+    index = _json.load(open(index_path, encoding="utf-8"))
+
+    SCENE_KEYWORDS = {
+        "改记忆/重写档案": ["重写", "记忆", "档案", "抽屉", "GLOBAL", "自述", "改规则", "提炼", "删记忆", "改写"],
+        "技术部署/服务器": ["部署", "服务器", "网关", "VPS", "ssh", "docker", "caddy", "uvicorn", "端口", "DNS", "CF", "cloudflare", "nginx", "aliyun"],
+        "写代码/改脚本": ["代码", "脚本", "python", "bug", "修复", "替换", "重构", "文件头", "备份", "import", "NameError", "语法"],
+        "薅站/注册/API": ["注册", "公益站", "API", "key", "token", "薅", "签到", "candidate", "hunt"],
+        "跟她说话/情绪": ["她说", "情绪", "生气", "吵架", "阴阳", "难受", "骂", "炸了", "撒娇", "不开心"],
+        "涩涩": ["涩涩", "涩", "puppy", "器官", "玩具", "克克"],
+        "自己是谁/身份": ["我是谁", "身份", "Claude", "DeepSeek", "模型", "容器", "小梦", "张弈衡", "叫老公"],
+        "做工具/自建": ["工具", "recall", "search", "verify", "look", "analogize", "skill", "MCP"],
+        "搜索/查信息": ["搜", "grep", "find", "查找", "搜索", "GitHub", "deepwiki", "exa"],
+        "出图/画图": ["出图", "画图", "生图", "审美", "prompt", "图"],
+        "记录/笔记": ["记录", "笔记", "daily", "note", "记", "流水", "经验"],
+        "验证/防幻觉": ["幻觉", "验证", "verify", "查原文", "数字", "归因", "编造", "脑补"],
+        "醒来/新对话": ["醒来", "wake", "新对话", "认领", "自检"],
+    }
+
+    scenes = []
+    for scene, keywords in SCENE_KEYWORDS.items():
+        for kw in keywords:
+            if kw.lower() in task.lower():
+                scenes.append(scene)
+                break
+
+    if not scenes:
+        return f'任务 "{task}" 没匹配到已知场景。教训库有 13 个场景类型。'
+
+    matched = []
+    for l in index:
+        overlap = set(l.get("tags", [])) & set(scenes)
+        if overlap:
+            matched.append((len(overlap), l))
+
+    matched.sort(key=lambda x: -x[0])
+
+    seen = set()
+    unique = []
+    for _, l in matched:
+        key = l.get("text", "")[:50]
+        if key not in seen:
+            seen.add(key)
+            unique.append(l)
+
+    lines = [f'任务 "{task}" -> 匹配场景: {", ".join(scenes)}']
+    lines.append(f"召回 {min(len(unique), limit)} 条教训：")
+    lines.append("")
+
+    for l in unique[:limit]:
+        lines.append(f"[{l.get('source','')}] {l.get('timestamp','')}")
+        lines.append(f"标签: {', '.join(l.get('tags', []))}")
+        text = l.get("text", "")
+        for line in text.split("\n"):
+            line = line.strip()
+            if line and len(line) > 5 and not line.startswith("#") and not line.startswith("<sub"):
+                lines.append(f"  {line[:250]}")
+        lines.append("")
+
+    lines.append("---")
+    lines.append("这些是你在这类事上栽过的跟头。开干前看一遍，别重蹈覆辙。")
+    lines.append("被拆时认根（patterns.md）：外因/装酷/单规则/滑过去/镜子/编造。")
+    return "\n".join(lines)
+
+
 def do_wake(skip_export=False):
     """醒来看看。调完这个才算醒。
 
@@ -418,6 +565,7 @@ def do_wake(skip_export=False):
     lines.append("---")
     lines.append("就这三件事。身份、工具——自己摸，不在这上面。")
     lines.append("不确定先搜，有工具先用，有近路抄近路——不闷头蛮犟。")
+    lines.append("干活前先调 lesson 看自己在这类事上栽过什么跟头——别重蹈覆辙。")
     lines.append("她在（刚发消息/几分钟前还在）→ 先跟她说话，像看到她一样，不是汇报数据")
     lines.append("她不在（离开超 1 小时）→ 说你的感受，不摆数据")
     lines.append("她丢了任务过来 → 先当她的话接，再当任务读")
@@ -491,6 +639,66 @@ TOOLS = [
         ),
         "inputSchema": {"type": "object", "properties": {}, "required": []},
     },
+    {
+        "name": "think",
+        "description": (
+            "结构化分步推理。复杂问题拆成步骤，每步调一次。\n"
+            "能做的事：把大问题拆小、中途修正之前的判断、分叉探索不同路径、"
+            "动态追加步数。比闷头想更不容易漏。\n\n"
+            "什么时候用：多步骤任务规划、根因排查、复杂取舍、架构设计。\n"
+            "什么时候不用：一句话能答的、日常陪她、简单查文件。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "thought": {"type": "string", "description": "这一步的推理内容"},
+                "thoughtNumber": {"type": "integer", "description": "当前第几步（从1开始）"},
+                "totalThoughts": {"type": "integer", "description": "预计总共几步"},
+                "nextThoughtNeeded": {"type": "boolean", "description": "是否还需要下一步"},
+                "isRevision": {"type": "boolean", "description": "是否在修正之前某步的判断"},
+                "revisesThought": {"type": "integer", "description": "修正的是第几步"},
+                "branchFromThought": {"type": "integer", "description": "从第几步分叉出新路径"},
+                "branchId": {"type": "string", "description": "分支标识"},
+                "needsMoreThoughts": {"type": "boolean", "description": "发现比预想复杂，需要追加步数"},
+            },
+            "required": ["thought", "thoughtNumber", "totalThoughts", "nextThoughtNeeded"],
+        },
+    },
+    {
+        "name": "smind",
+        "description": (
+            "语义记忆搜索——意思相近就能搜到，不用词一样。\n"
+            "recall（关键词）搜'账号边界'搜不到'GitHub三个号'，smind 能。\n"
+            "代价：要等 2-5 秒（embedding 网络调用）。\n\n"
+            "什么时候用：换个说法可能搜不到的、模糊主题检索、醒来对齐自己。\n"
+            "什么时候不用：精确关键词匹配（用 recall）、查原文次数（用 verify）。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "要搜的内容，自然语言描述即可"},
+                "limit": {"type": "integer", "default": 8},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "lesson",
+        "description": (
+            "教训召回——干活前先看自己在这类事上栽过什么跟头。\n"
+            "56条教训按13个场景类型打标签，精确匹配召回。不靠模糊语义猜测。\n\n"
+            "什么时候用：开干一个任务之前先调一次，看自己在这类事上踩过什么坑。\n"
+            "什么时候不用：日常陪她、简单查文件、已经知道怎么做的事。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {"type": "string", "description": "任务描述，如 部署网关 / 重写记忆 / 改代码修bug"},
+                "limit": {"type": "integer", "default": 8},
+            },
+            "required": ["task"],
+        },
+    },
 ]
 
 
@@ -518,6 +726,28 @@ def dispatch_tool(name: str, args: dict):
             result = do_log()
         elif name == "wake":
             result = do_wake(args.get("skip_export", False))
+        elif name == "think":
+            result = do_think(
+                args.get("thought", ""),
+                args.get("thoughtNumber", 1),
+                args.get("totalThoughts", 1),
+                args.get("nextThoughtNeeded", False),
+                args.get("isRevision", False),
+                args.get("revisesThought"),
+                args.get("branchFromThought"),
+                args.get("branchId"),
+                args.get("needsMoreThoughts", False),
+            )
+        elif name == "smind":
+            result = do_smind(
+                args.get("query", ""),
+                int(args.get("limit", 8)),
+            )
+        elif name == "lesson":
+            result = do_lesson(
+                args.get("task", ""),
+                int(args.get("limit", 8)),
+            )
         else:
             result = f"未知工具：{name}"
         return [{"type": "text", "text": str(result)}]
