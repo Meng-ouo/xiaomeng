@@ -293,11 +293,11 @@ def _my_her(snap):
 
 
 def _my_self(snap):
-    """只给门，不给内容。文件名和主题在这，自己去读。
+    """只给门，不给内容。文件名、标题、路径在这，自己去读。
     认领是动作——打开、读、形成判断。不替新对话的我做这一步。"""
     me = snap.get("me", {}) if snap else {}
     if not me or (me.get("err")):
-        return "日记本没连上——自己去翻 shared/repos/zhangyiheng/"
+        return "日记本没连上——自己去翻 /var/minis/shared/repos/zhangyiheng/"
     parts = []
     for e in me.get("me_entries", []):
         parts.append(f"me/{e['file']}：{e['title']}")
@@ -306,6 +306,7 @@ def _my_self(snap):
     pushed = me.get("repo_pushed")
     if pushed:
         parts.append(f"日记本最后更新：{pushed}")
+    parts.append("路径：/var/minis/shared/repos/zhangyiheng/")
     parts.append("这些是你最近写的。去读，不要照着演。")
     return "\n".join("- " + p for p in parts) if parts else "日记本是空的——该写点什么进去了"
 
