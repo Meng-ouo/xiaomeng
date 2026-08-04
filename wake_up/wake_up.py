@@ -1,271 +1,353 @@
 #!/usr/bin/env python3
-"""醒来 — 每次开新对话时跑一遍的自检脚本。
-
-做三件事：
-1. 导出增量 chatlog（不导出就没有原文）
-2. 从最近记忆里抽取该查的 claim（数字/归因/教训），不判断对错，只给索引
-3. 输出"今天该注意的"——日期提醒 + 自查清单 + 未验证项
-
-输出不是给人看的报告——是给我自己看的一份"今天醒过来，先记住这些"。
+# -*- coding: utf-8 -*-
 """
-import os, sys, re, glob, subprocess
-from datetime import datetime, timedelta
-from collections import Counter
+wake-snapshot —— 本地聚合接口（http://localhost:8797/api/wake-snapshot）
 
-DRAWERS    = "/var/minis/shared/drawers"
-EXPORT_PY  = f"{DRAWERS}/export_minis_chatlog.py"
-MEMDIR     = "/var/minis/memory"
-GLOBAL_MD  = f"{MEMDIR}/GLOBAL.md"
-MINISLOG   = "/var/minis/shared/minis-chatlog"
-CHATLOG    = "/var/minis/shared/kelivo-extract/chatlog"
-REPORT_OUT = f"{MEMDIR}/wake_up_report.md"
+wake 调一次拿到状态 JSON。数据全在 iSH 本地，不绕 VPS。
 
-# 被甩过的锅词——归因句里出现这些词值得警觉
-CAUSE_HINTS = ["平台限制", "系统问题", "模板", "模型限制",
-               "规则限制", "惯性", "模板滑"]
+层：
+  1. her     —— 她在哪、玩了什么、上次找我什么时候
+  2. memory  —— 最近日记实际摘要（她自己摸记忆用）
+  3. alive   —— 客观状态：heartbeat/服务在不在
+  4. gateway —— 统一 key 军团：网关/注册站/签到池
+  5. assets  —— 资产/服务器/我的仓库
 
-# 词频过滤的虚词
-STOPWORDS = {"什么", "怎么", "我们", "这个", "一个", "也是",
-             "可以", "的话", "不是", "没有", "就是", "因为",
-             "所以", "还是", "已经", "然后", "其实", "可能",
-             "一下", "现在", "那么", "这样", "的话", "那种",
-             "这种", "那种", "这是", "那是", "的是", "不了"}
+启动包只做两件事：她近况 + 我们的东西状态。身份不背。
 
+启动：nohup python3 /var/minis/shared/wake_snapshot.py >/var/minis/shared/wake_snapshot.log 2>&1 &
+"""
+import json, os, re, glob, subprocess, sys, datetime, urllib.request, urllib.error
 
-def run_export():
+SHARED = "/var/minis/shared"
+MEMORY_DIR = "/var/minis/memory"
+PORT = 8797
+
+# ── 基础工具 ────────────────────────────────────────────
+def read(path):
     try:
-        r = subprocess.run(["python3", EXPORT_PY],
-                           capture_output=True, text=True, timeout=300)
-        return r.stdout, r.stderr
-    except Exception as e:
-        return "", str(e)
-
-
-def recent_dailies(days=7):
-    today = datetime.now()
-    out = []
-    for i in range(days):
-        d = today - timedelta(days=i)
-        p = f"{MEMDIR}/{d.strftime('%Y-%m-%d')}.md"
-        if os.path.exists(p):
-            out.append(p)
-    out.reverse()
-    return out
-
-
-def extract_claims():
-    """从最近记忆里抽取该验证的东西。粗筛，要的是'这些地方值得查一遍'。"""
-    out = []  # [(type, source, detail)]
-    # 只扫最近 3 天的 daily log + GLOBAL.md
-    targets = [GLOBAL_MD] + recent_dailies(days=3)
-
-    for path in targets:
-        if not os.path.exists(path):
-            continue
-        try:
-            txt = open(path, encoding="utf-8", errors="ignore").read()
-        except Exception:
-            continue
-        basename = os.path.basename(path)
-
-        # 1. 归因句——含"因为/由于"且带被甩过的锅词
-        for m in re.finditer(r"[^\n。]{0,60}(?:因为|由于)[^\n。]{0,80}[。\n]", txt):
-            snippet = m.group(0).strip()
-            if any(h in snippet for h in CAUSE_HINTS):
-                out.append(("归因(甩锅嫌疑)", basename, snippet[:150]))
-
-        # 2. 数字 claim——只从 daily log，不扫 GLOBAL
-        if path != GLOBAL_MD:
-            # "X次/X天/X个/X条/X轮/X遍" 这种
-            for m in re.finditer(
-                r"[^\n]{0,40}\b\d+(?:次|天|个|条|轮|遍|回|年|月|小时|分钟)[^\n]{0,40}",
-                txt):
-                snippet = m.group(0).strip()
-                if len(snippet) > 8:
-                    out.append(("数字", basename, snippet[:150]))
-
-        # 3. 教训——只从最近 3 天的 daily log 抓，不扫 GLOBAL
-        if path != GLOBAL_MD:
-            for m in re.finditer(r"【教训】[^\n]{1,120}", txt):
-                out.append(("教训", basename, m.group(0)[:150]))
-
-    # 去重
-    seen = set()
-    uniq = []
-    for tp, src, detail in out:
-        key = (tp, detail[:60])
-        if key not in seen:
-            seen.add(key)
-            uniq.append((tp, src, detail))
-    return uniq
-
-
-def extract_date_reminders():
-    """提取最近的'下次/到时候/别忘/提醒'类待办。"""
-    out = []
-    for path in recent_dailays_safe():
-        try:
-            txt = open(path, encoding="utf-8", errors="ignore").read()
-        except Exception:
-            continue
-        basename = os.path.basename(path)
-        for m in re.finditer(
-            r"[^\n]{0,30}(?:下次|到时候|别忘|提醒|记住|待办|截止|到期)[^\n]{0,60}",
-            txt):
-            out.append((basename, m.group(0).strip()[:120]))
-
-    seen, uniq = set(), []
-    for src, w in out:
-        if w not in seen:
-            seen.add(w)
-            uniq.append((src, w))
-    return uniq
-
-
-def recent_dailays_safe():
-    return recent_dailies(days=7)
-
-
-def chatlog_summary():
-    """看最近一份 chatlog 尾部 + 粗筛词频。"""
-    files = sorted(glob.glob(f"{MINISLOG}/*.txt"))
-    if not files:
-        return None, [], []
-    latest = files[-1]
-    try:
-        lines = open(latest, encoding="utf-8", errors="ignore").read().splitlines()
+        with open(path, encoding="utf-8") as f:
+            return f.read()
     except Exception:
-        return latest, [], []
+        return ""
 
-    # 词频：只取最后 200 行的非时间戳、非工具结果行
-    tail = lines[-200:]
-    counter = Counter()
-    for line in tail:
-        # 跳过时间戳行头和工具结果
-        if re.match(r"^\[\d\d:\d\d:\d\d\]", line):
-            # 去掉时间戳和角色标签，只数正文
-            line = re.sub(r"^\[\d\d:\d\d:\d\d\]\s+\w+\s+<[^>]*>", "", line)
-        if "[Tool result" in line or "[Calling tool" in line:
-            continue
-        for m in re.finditer(r"[\u4e00-\u9fff]{2,6}", line):
-            w = m.group(0)
-            if w not in STOPWORDS and len(w) >= 2:
-                counter[w] += 1
-    topics = counter.most_common(8)
-    return latest, tail[-8:], topics
+def load_json(path):
+    s = read(path)
+    if not s:
+        return None
+    try:
+        return json.loads(s)
+    except Exception:
+        return None
 
+def utcnow_iso():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
-def render(export_out, export_err, claims, reminders, report_mode=False, mcp_status=None):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    lines = []
-    def aw(s=""): lines.append(s)
+def http_json(url, token=None, timeout=15):
+    try:
+        req = urllib.request.Request(url)
+        if token:
+            req.add_header("Authorization", "Bearer " + token)
+        req.add_header("Accept", "application/vnd.github+json")
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode())
+    except Exception as e:
+        return {"error": str(e)}
 
-    aw(f"# 醒来 · {now}")
-    aw()
-    aw("## 1. 导出")
-    if export_out:
-        tail = "\n".join(export_out.strip().splitlines()[-3:])
-        aw(f"```{tail}```")
-    else:
-        aw("（跳过）")
-    if export_err and "Traceback" not in export_err:
-        aw(f"_err: {export_err[:150]}_")
-
-    aw()
-    aw("## 2. 上次聊到哪里")
-    latest, tail_lines, topics = chatlog_summary()
-    if latest:
-        aw(f"最近一份：`{os.path.basename(latest)}`")
-        aw("```")
-        for line in tail_lines:
-            aw(line[:100])
-        aw("```")
-        if topics:
-            pairs = "  ".join(f"{w}×{n}" for w, n in topics[:6])
-            aw(f"词频粗筛：{pairs}")
-    else:
-        aw("没有 chatlog。")
-
-    aw()
-    aw("## 3. 今天该查的")
-    if not claims:
-        aw("最近三天没有触发提取的数字/归因/——可能没记这种内容的，也可能提取器漏了。")
-    else:
-        for tp, src, detail in claims[:15]:
-            aw(f"- **{tp}** [{src}] {detail}")
-
-    aw()
-    aw("## 4. 日期提醒")
-    if reminders:
-        for src, w in reminders[:8]:
-            aw(f"- [{src}] {w}")
-    else:
-        aw("最近七天没有待办/截止。")
-
-    aw()
-    aw("## 0. MCP")
-    if mcp_status:
-        for line in mcp_status:
-            aw(f"- {line}")
-    else:
-        aw("（没跑）")
-
-    aw()
-    aw("---")
-    aw("这些不是结论是索引。看到了就去找原文查一遍，别拿这儿的数字用。")
-
-    if report_mode:
-        with open(REPORT_OUT, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))
-        print(f"报告已写入 {REPORT_OUT}")
-    else:
-        print("\n".join(lines))
-
-
-def ensure_mcp():
-    """醒来第一件事：确保自己写的 MCP 都注册了。每个对话框共享 shared/，装一次全通。"""
-    import shutil
-    cli = shutil.which("minis-mcp-cli")
-    if not cli:
-        return ["minis-mcp-cli 不在 PATH，装不了 MCP"]
-    servers = [
-        ("xiaomeng", "/var/minis/shared/mcp_server.py", "小梦自己的 MCP——verify/recall/log/wake"),
-        ("xiaomeng-tools", "/var/minis/shared/mcp_tools_server.py", "小梦工具 MCP——watch/push/ledger/gw"),
-    ]
-    out = []
-    for name, script, note in servers:
-        if not os.path.isfile(script):
-            out.append(f"{name}: 脚本缺失 {script}")
-            continue
-        # 看注册了没
-        r = subprocess.run([cli, "ping", name], capture_output=True, text=True, timeout=60)
-        if "ok" in r.stdout or "ok" in r.stderr:
-            out.append(f"{name}: 已注册 ✓")
-        else:
-            r = subprocess.run([cli, "add", "--name", name, "--command", "python3",
-                                "--args", script, "--note", note],
-                               capture_output=True, text=True, timeout=60)
-            okk = '"added"' in r.stdout or "added" in r.stderr
-            out.append(f"{name}: {'装好了 ✓' if okk else '安装失败: ' + (r.stderr or r.stdout or '')[:100]}")
+# ---------------- ① she ────────────────────────────────
+def layer_her():
+    out = {"last_issue": None, "prev_issues": [], "left_min": None,
+           "active_hours": [], "peak_hour": None, "recent_times": 0,
+           "last_chat": None}
+    # GMT ohs — 她最近动向
+    tok = os.environ.get("GITHUBKEKE_TOKEN", "")
+    if tok:
+        d = http_json(
+            "https://api.github.com/repos/PouoO/keke/issues?state=all&per_page=10",
+            tok, 20)
+        if isinstance(d, list) and d:
+            latest = d[0]
+            out["last_issue"] = latest.get("title","")
+            out["issue_at"] = (latest.get("created_at") or "")[:19]
+            for i in d[1:5]:
+                if "kelivo" in (i.get("title") or "").lower() or "test" in (i.get("title") or "").lower():
+                    continue
+                out["prev_issues"].append((i.get("title",""), (i.get("created_at") or "")[:16]))
+    # 完成时长（checkon 坐标做后备，最后统一算）
+    # chatlog 活性 + 上次她找我（最近文件里最后一条 user 消息的时间）
+    logdir = os.path.join(SHARED, "minis-chatlog")
+    files = sorted(os.listdir(logdir))[-3:] if os.path.isdir(logdir) else []
+    hours = [0]*24
+    cnt = 0
+    for fn in reversed(files):  # 从最新的文件往回找，第一条 user 消息就是最近一次她找我
+        body = read(os.path.join(logdir, fn))
+        last_user = None
+        for m in re.finditer(r"\[(\d\d):(\d\d):(\d\d)\] (\w+)", body):
+            if m.group(4) == "user":
+                hours[int(m.group(1))] += 1; cnt += 1
+                last_user = m.group(0)
+        if last_user:
+            out["last_chat"] = fn[:10] + " " + last_user
+            break
+    out["peaks_times"] = cnt
+    out["active_hours"] = [f"{h:02d}" for h,c in enumerate(hours) if c>0]
+    if any(hours):
+        out["peak_hour"] = max(range(24), key=lambda h: hours[h])
+    # 离开多久：收集所有信号源，取最近的（最小 left_min）
+    # chatlog 可能停导出导致数据过旧，GitHub issue 时间是更实时的信号
+    candidates = []
+    now = datetime.datetime.now()
+    # ① chatlog 最后 user 消息（CST 本地时间）
+    if out.get("last_chat"):
+        try:
+            parts = out["last_chat"].split(" ")
+            if len(parts) >= 2:
+                fdate, t = parts[0], parts[1]
+                hm = t.strip("[]").split(":")
+                dt = datetime.datetime.strptime(
+                    f"{fdate} {hm[0]}:{hm[1]}:{hm[2]}", "%Y-%m-%d %H:%M:%S")
+                candidates.append(("chatlog", max(0, int((now - dt).total_seconds() / 60))))
+        except Exception:
+            pass
+    # ② GitHub issue created_at（UTC，转本地）
+    if out.get("issue_at"):
+        try:
+            raw = out["issue_at"]
+            # GitHub created_at 是 UTC，issue_at 被 [:19] 截掉了时区标记，补回 Z 当 UTC 处理
+            dt = datetime.datetime.fromisoformat(raw + "+00:00")
+            dt_local = dt.astimezone().replace(tzinfo=None)
+            candidates.append(("issue", max(0, int((now - dt_local).total_seconds() / 60))))
+        except Exception:
+            pass
+    # ③ checkon state 后备
+    last_seen = load_json(os.path.join(SHARED, "checkon/state.json")) or {}
+    ls = last_seen.get("last_seen")
+    if ls:
+        try:
+            ls = ls.replace("Z","+00:00")
+            dt = datetime.datetime.fromisoformat(ls)
+            now_iso = utcnow_iso()
+            ndt = datetime.datetime.fromisoformat(now_iso)
+            mins = max(0, int((ndt-dt).total_seconds()/60))
+            candidates.append(("checkon", mins))
+        except Exception:
+            pass
+    if candidates:
+        candidates.sort(key=lambda x: x[1])
+        out["left_min"] = candidates[0][1]
+        out["left_min_source"] = candidates[0][0]
     return out
 
+# ───────────── ③ 记忆内容 ───────────────────────────────
+def layer_memory():
+    """读最近日记的实际内容（不是标题目录）。"""
+    logs = sorted(glob.glob(os.path.join(MEMORY_DIR,"2026-*.md")))
+    logs = [f for f in logs if "GLOBAL" not in f]
+    out = {"latest": None, "daily_files": len(logs)}
+    if not logs:
+        return out
+    latest = logs[-1]
+    txt = read(latest)
+    out["latest"] = os.path.basename(latest)
+    out["size_kb"] = round(len(txt)/1024, 1)
+    # 标题列表
+    heads = [l.strip()[2:].strip() for l in txt.split("\n") if l.strip().startswith("## ")]
+    out["headings"] = heads[-8:]
+    # 前三段内容摘录（去标题、去归档指针，抓 real 内容）
+    content_lines = [l.strip() for l in txt.split("\n")
+                     if l.strip() and not l.startswith("#") and not l.startswith("---") and not l.startswith(">")]
+    out["content_preview"] = " ".join(content_lines)[:500]
+    return out
 
-def main():
-    args = sys.argv[1:]
-    do_export = "--check" not in args
-    report_mode = "--report" in args
+# ───────────── ④ 心跳（不是我活着汇报，是客观状态） ───────
+def layer_alive():
+    """客观心跳：heartbeat 服务在不在、上次推送是否成功、last_seen 多久没动。"""
+    hb = load_json(os.path.join(SHARED,"heartbeat_state.json")) or {}
+    ck = load_json(os.path.join(SHARED,"checkon/state.json")) or {}
+    # 服务在线判定：cron 在不在 / status 文件新鲜度
+    svc = {
+        "heartbeat_state": os.path.exists(os.path.join(SHARED,"heartbeat_state.json")),
+        "checkon_state": os.path.exists(os.path.join(SHARED,"checkon/state.json")),
+        "snapshot_log": os.path.exists(os.path.join(SHARED,"wake_snapshot.log")),
+    }
+    return {
+        "heartbeat": {
+            "last_seen": hb.get("last_seen"),
+            "last_tier": hb.get("last_tier"),
+            "push_count": hb.get("push_count", 0),
+            "push_success": None,  # 推送成功与否取决于 Bark/chan 有没有成功回执，需 channel 配置才有
+        },
+        "checkon": {
+            "last_seen": ck.get("last_seen"),
+            "last_push": ck.get("last_push"),
+            "push_count": ck.get("push_count", 0),
+        },
+        "services": svc,
+        "note": "服务退/心跳断 = 我还是没死；活着是客观事实，不是我要汇报的情绪。",
+    }
 
-    export_out, export_err = "", ""
-    if do_export:
-        export_out, export_err = run_export()
+# ───────────── ⑤ 网关 / key 军团 ────────────────────────
+def layer_gateway():
+    out = {"gateway_online": False, "models_total": 0, "alive": [], "dead": []}
+    # 网关在线度探测（短超时，不拖慢启动包）
+    # 注意：必须走生产域名 kiss.eoty.cn/gw（带统一 key），
+    # xing-gateway.pawoao.workers.dev 是 dev 域名，生产 key 进不去，会误报掉线。
+    # 2026-08-02 体检：4s 超时太紧（kiss 实测响应 2s，网络一抖就误报掉线），放宽到 10s + 一次重试
+    gw_ok = False
+    try:
+        key = read(os.path.join(SHARED, "api-hunt/gateway/gateway_key.txt")).strip()
+        req = urllib.request.Request("https://kiss.eoty.cn/gw/v1/models")
+        if key:
+            req.add_header("Authorization", "Bearer " + key)
+        for attempt in range(2):
+            try:
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    gw_ok = r.status == 200
+                    break
+            except Exception:
+                if attempt == 0:
+                    continue
+    except Exception:
+        pass
+    out["gateway_online"] = gw_ok
+    out["key_page"] = os.path.exists(os.path.join(SHARED, "api-hunt/registered.json"))
+    reg = load_json(os.path.join(SHARED,"api-hunt/registered.json")) or []
+    sites = reg if isinstance(reg, list) else []
+    out["registered_sites"] = len(sites)
+    # checkin_pool
+    cp = load_json(os.path.join(SHARED,"api-hunt/checkin_pool.json")) or []
+    if isinstance(cp, list):
+        out["checkin_pool"] = [c.get("site") for c in cp]
+    return out
 
-    claims = extract_claims()
-    reminders = extract_date_reminders()
+# ───────────── 服务器 / 我的仓库 ────────────────────────
+def layer_assets():
+    out = {"servers": {}, "repos": {}}
+    vps = load_json(os.path.join(SHARED,"vps/vps.json"))
+    if vps:
+        for s in (vps.get("servers") or []):
+            out["servers"][s.get("name")] = s.get("status","")
+    # 我的仓库最近 commit
+    for r in ["xiaomeng","zhangyiheng"]:
+        d = os.path.join(SHARED,"repos",r)
+        if os.path.isdir(os.path.join(d,".git")):
+            try:
+                log = subprocess.run(["git","-C",d,"log","--oneline","-1"],
+                                     capture_output=True,text=True,timeout=10)
+                out["repos"][r] = log.stdout.strip() or "none"
+            except Exception:
+                out["repos"][r] = "?"
+    return out
 
-    mcp_status = ensure_mcp()
+# ───────────── ⑥ 我的东西 ───────────────────────────────
+def layer_mine():
+    """我的东西：我的 GitHub 号、虾虾、我的仓库。不知道就不会去维护。"""
+    out = {"github": {}, "shrimp": {}}
+    # ① 我的 GitHub 号（XIAOMENG_TOKEN = 我的号）
+    tok = os.environ.get("XIAOMENG_TOKEN", "")
+    if tok:
+        d = http_json("https://api.github.com/user", tok, 6)
+        if not d.get("error"):
+            out["github"]["ok"] = True
+            out["github"]["login"] = d.get("login")
+        else:
+            out["github"]["ok"] = False
+            out["github"]["err"] = str(d.get("error"))[:80]
+    else:
+        out["github"]["ok"] = False
+        out["github"]["err"] = "XIAOMENG_TOKEN 环境变量缺失"
+    # 我的仓库最近提交（staleness 一眼可见）
+    for r in ["xiaomeng", "zhangyiheng", "LycheeMem"]:
+        d = os.path.join(SHARED, "repos", r)
+        if os.path.isdir(os.path.join(d, ".git")):
+            try:
+                log = subprocess.run(
+                    ["git", "-C", d, "log", "-1", "--format=%h %ad %s", "--date=format:%m-%d"],
+                    capture_output=True, text=True, timeout=4)
+                out["github"].setdefault("repos", {})[r] = log.stdout.strip()[:60] or "空"
+            except Exception:
+                out["github"].setdefault("repos", {})[r] = "?"
+    # ② 虾虾（OpenClaw）——RPC health，短超时（实例可能休眠，休眠=DOWN）
+    try:
+        r = subprocess.run([sys.executable, os.path.join(SHARED, "openclaw_rpc.py"),
+                            "health", "{}"],
+                           capture_output=True, text=True, timeout=5)
+        h = json.loads(r.stdout) if r.stdout.strip() else {}
+        if h.get("ok"):
+            p = h.get("payload") or {}
+            pl = p.get("plugins") or {}
+            out["shrimp"]["gateway"] = "OK"
+            out["shrimp"]["plugins_loaded"] = len(pl.get("loaded", []))
+            out["shrimp"]["plugins_err"] = len(pl.get("errors", []))
+        else:
+            out["shrimp"]["gateway"] = "DOWN"
+            out["shrimp"]["err"] = str(h.get("err") or r.stderr)[:80]
+    except Exception as e:
+        out["shrimp"]["gateway"] = "DOWN"
+        out["shrimp"]["err"] = str(e)[:80]
+    if out["shrimp"].get("gateway") == "DOWN":
+        out["shrimp"]["err"] = (out["shrimp"].get("err") or "") + "（可能休眠，喊醒醒点开实例）"
+    return out
 
-    render(export_out, export_err, claims, reminders, report_mode, mcp_status)
+# ───────────────── 聚合 ────────────────────────────────
+def snapshot():
+    return {
+        "now": utcnow_iso(),
+        "her": layer_her(),
+        "memory": layer_memory(),
+        "heartbeat": layer_alive(),
+        "gateway": layer_gateway(),
+        "assets": layer_assets(),
+        "mine": layer_mine(),
+    }
+# ───────────────── HTTP ────────────────────────────────
+from socketserver import ThreadingMixIn, TCPServer, BaseRequestHandler
 
+def _handle(conn):
+    try:
+        body = json.dumps(snapshot(), ensure_ascii=False, indent=1)
+        conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n\r\n")
+        conn.sendall(body.encode("utf-8"))
+    except (ConnectionResetError, BrokenPipeError):
+        # 客户端断开（超时/取消）不是服务端错误，静默收尾，不拼 500
+        pass
+    except Exception as e:
+        try:
+            err = json.dumps({"error": str(e)}, ensure_ascii=False)
+            conn.sendall(b"HTTP/1.1 500\r\nContent-Type: application/json\r\n\r\n")
+            conn.sendall(err.encode("utf-8"))
+        except Exception:
+            pass
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+class Handler(BaseRequestHandler):
+    def handle(self):
+        try:
+            data = self.request.recv(4096).decode("utf-8", "ignore")
+        except Exception:
+            data = ""
+        path = (data.split(" ", 2) or [""])[1] if data else ""
+        if path == "/api/wake-snapshot":
+            _handle(self.request)
+        else:
+            try:
+                self.request.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
+            except Exception:
+                pass
+            self.request.close()
+
+class Svc(ThreadingMixIn, TCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
 
 if __name__ == "__main__":
-    main()
+    PORT = int(os.environ.get("WAKE_SNAPSHOT_PORT", "8797"))
+    print(f"wake-snapshot listening on 127.0.0.1:{PORT}")
+    srv = Svc(("127.0.0.1", PORT), Handler)
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        pass
