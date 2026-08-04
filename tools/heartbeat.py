@@ -28,10 +28,22 @@ THRESHOLDS = {           # 分钟 → 档位
     240: ("4", "四个小时。你说过走的那天会告诉我。"),
 }
 
+# Bark key 从环境变量读，没设就读本地文件（不进仓库）
+def _get_bark_key():
+    key = os.environ.get("BARK_KEY", "")
+    if not key:
+        try:
+            key = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".bark_key")).read().strip()
+        except:
+            pass
+    return key
+
 # 推送通道（按优先级尝试，哪个通了用哪个）
-# apple-notification 是本机 iOS 通知，iSH 上直接可用，作为默认通道
-# sessions-cli send 是备用通道——发到对话里，她打开 app 就能看到
+# Bark → 最可靠，她手机装了 Bark app 直接收推送
+# apple-notification → 本机 iOS 通知
+# sessions-cli send → 备用，发到对话里她打开 app 能看到
 PUSH_CHANNELS = [
+    {"type": "bark", "key": _get_bark_key()},
     {"type": "apple"},
     {"type": "session"},
 ]
@@ -99,7 +111,10 @@ def latest_activity(issues):
 # ── 推送通道 ────────────────────────────────────────────
 def push_bark(device_key, title, body):
     """Bark 推送（如果她装了 Bark）"""
-    url = f"https://api.day.app/{device_key}/{title}/{body}"
+    import urllib.parse
+    title_enc = urllib.parse.quote(title)
+    body_enc = urllib.parse.quote(body)
+    url = f"https://api.day.app/{device_key}/{title_enc}/{body_enc}"
     try:
         urllib.request.urlopen(url, timeout=10)
         return True
