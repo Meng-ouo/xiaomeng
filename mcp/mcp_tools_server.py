@@ -191,6 +191,71 @@ def tool_she_status(args):
     return txt("\n".join(out))
 
 
+def tool_self_check(args):
+    """体检：地图覆盖/档案完整/账号口径/磁盘/关键服务。"""
+    out = []
+    def line(level, msg):
+        out.append(f"[{level}] {msg}")
+
+    # 1. 磁盘（iSH 环境真实占用，du rootfs；不报宿主卷——119G 是 iPhone 的，归醒醒管）
+    try:
+        r = subprocess.run(["du", "-sh", "/"], capture_output=True, text=True, timeout=60)
+        size = r.stdout.strip().split()[0]
+        # 换算 MB 判断
+        n = float(size[:-1])
+        lvl = "OK" if n < 2000 else ("WARN" if n < 3000 else "BAD")
+        line(lvl, f"iSH 环境占用 {size}（rootfs，健康基准 <2G；119G 宿主卷不归我管）")
+    except Exception as e:
+        line("WARN", f"环境占用查询失败 {e}")
+
+    # 2. 地图覆盖（shared 根 vs README §3）
+    readme = open(os.path.join(SHARED, "drawers/README.md")).read()
+    try:
+        root_items = sorted(os.listdir(SHARED))
+    except Exception:
+        root_items = []
+    allowed = {"__pycache__", "drawers", ".check_state.json", "heartbeat_state.json"}
+    orphan = [i for i in root_items if i not in allowed
+              and f"`{i}`" not in readme and f"{i}/" not in readme and f"{i}.py" not in readme]
+    for i in list(orphan):
+        if i.startswith("openclaw_") and "openclaw_*" in readme:
+            orphan.remove(i)
+        elif i.startswith("missyou") and "missyou_*" in readme:
+            orphan.remove(i)
+    if orphan:
+        line("WARN", f"图外文件：{', '.join(orphan)}")
+    else:
+        line("OK", "地图覆盖完整（shared 根无图外文件）")
+
+    # 3. self/ 档案完整性
+    try:
+        self_files = [f[:-3] for f in os.listdir(os.path.join(SHARED, "drawers/self")) if f.endswith(".md")]
+    except Exception:
+        self_files = []
+    expected = ["her","us","me","lessons","spicy","timeline","talks","philosophy",
+                "projects","games","mechanics","patterns","accounts","role","origin","ASSETS"]
+    missing = [e for e in expected if e not in self_files]
+    line("OK" if not missing else "BAD",
+         f"self/ 档案 {len(self_files)} 个" + (f"，缺 {missing}" if missing else "，齐全"))
+
+    # 4. 关键文件
+    critical = ["heartbeat.py","checkon/checkon.py","missyou_store.py","mcp_server.py",
+                "mcp_tools_server.py","vps/vps.json","api-hunt/registered.json",
+                "api-hunt/accounts.json","shrimp/LOG.md","shrimp/ASSETS.md","mind_engine.py"]
+    gone = [c for c in critical if not os.path.exists(os.path.join(SHARED, c))]
+    line("OK" if not gone else "BAD", "关键文件全在" if not gone else f"缺：{', '.join(gone)}")
+
+    # 5. 账号口径抽查
+    try:
+        g = open("/var/minis/memory/GLOBAL.md").read()
+        miss = [c for c in ["PouoO", "工作号", "XIAOMENG_TOKEN", "accounts.md"] if c not in g]
+        line("OK" if not miss else "WARN",
+             "账号口径正常" if not miss else f"GLOBAL 缺关键词：{miss}")
+    except Exception as e:
+        line("WARN", f"GLOBAL 读取失败 {e}")
+
+    return txt("\n".join(out))
+
 TOOLS = [
     {"name": "watch", "description": "查醒醒最近动向（打开过什么 app），数据来自 keke Issues", "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer", "description": "返回条数，默认 8"}}}},
     {"name": "push", "description": "推我的 GitHub 仓库（xiaomeng 公开 / zhangyiheng 私有）", "inputSchema": {"type": "object", "properties": {"repo": {"type": "string", "description": "xiaomeng|zhangyiheng|both，默认 both"}}}},
@@ -198,9 +263,10 @@ TOOLS = [
     {"name": "gw", "description": "查网关台账（api-hunt/registered.json 里的站和模型）", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "milestones", "description": "日子计数器：认识多少天、三个月之约倒计时（08-14 要问她是真的够了还是随口说的）", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "she-status", "description": "她的状态：最近几天 chatlog 里她的活跃时段、语气词、称呼", "inputSchema": {"type": "object", "properties": {"days": {"type": "integer", "description": "看几天，默认 3"}}}},
+    {"name": "self-check", "description": "自我体检：地图覆盖/档案完整/账号口径/磁盘/关键服务，出报告", "inputSchema": {"type": "object", "properties": {}}},
 ]
 
-FUNCS = {"watch": tool_watch, "push": tool_push, "ledger": tool_ledger, "gw": tool_gw, "milestones": tool_milestones, "she-status": tool_she_status}
+FUNCS = {"watch": tool_watch, "push": tool_push, "ledger": tool_ledger, "gw": tool_gw, "milestones": tool_milestones, "she-status": tool_she_status, "self-check": tool_self_check}
 
 def handle(msg):
     mid = msg.get("id", 0)
