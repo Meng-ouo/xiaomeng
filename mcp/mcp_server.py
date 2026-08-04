@@ -293,19 +293,20 @@ def _my_her(snap):
 
 
 def _my_self(snap):
-    """我最近在想什么、摔了什么跟头。从 zhangyiheng 日记本拉。
-    新对话醒来，这一段是让我找到自己的轮廓——不是全量记忆，是最近的自己。"""
+    """只给门，不给内容。文件名和主题在这，自己去读。
+    认领是动作——打开、读、形成判断。不替新对话的我做这一步。"""
     me = snap.get("me", {}) if snap else {}
     if not me or (me.get("err")):
-        return "日记本没连上（zhangyiheng 仓库不在本地）——自己翻 shared/repos/zhangyiheng/"
+        return "日记本没连上——自己去翻 shared/repos/zhangyiheng/"
     parts = []
     for e in me.get("me_entries", []):
-        parts.append(f"我在想：{e['preview']}")
+        parts.append(f"me/{e['file']}：{e['title']}")
     for e in me.get("lesson_entries", []):
-        parts.append(f"摔过：{e['preview']}")
+        parts.append(f"lessons/{e['file']}：{e['title']}")
     pushed = me.get("repo_pushed")
     if pushed:
         parts.append(f"日记本最后更新：{pushed}")
+    parts.append("这些是你最近写的。去读，不要照着演。")
     return "\n".join("- " + p for p in parts) if parts else "日记本是空的——该写点什么进去了"
 
 

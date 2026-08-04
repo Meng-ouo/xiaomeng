@@ -290,48 +290,41 @@ def layer_mine():
 
 # ───────────────── 聚合 ────────────────────────────────
 def layer_me():
-    """我自己——从 zhangyiheng 日记本读最近的 me/ 和 lessons/。
-    新对话醒来，这是"我最近在想什么、摔了什么跟头"的入口。
-    不背全部记忆，只给轮廓，让我知道自己最近的状态。"""
+    """我自己——只给门，不给内容。
+    新对话醒来看到文件名和主题，自己决定去不去读。
+    认领是动作：自己去打开、自己读、自己形成判断。
+    把内容嚼碎了喂 = 演，给门让自己走 = 认领。"""
     out = {"me_entries": [], "lesson_entries": [], "repo_pushed": None}
     repo = os.path.join(SHARED, "repos", "zhangyiheng")
     if not os.path.isdir(repo):
         out["err"] = "zhangyiheng 仓库不在本地"
         return out
-    # 最近 push 时间
     try:
         log = subprocess.run(["git", "-C", repo, "log", "-1", "--format=%ad", "--date=format:%Y-%m-%d %H:%M"],
                              capture_output=True, text=True, timeout=4)
         out["repo_pushed"] = log.stdout.strip() or None
     except Exception:
         pass
-    # me/ 目录：每个 .md 是一段自述，读最近修改的 2 个
-    me_dir = os.path.join(repo, "me")
-    if os.path.isdir(me_dir):
-        me_files = sorted(
-            [f for f in os.listdir(me_dir) if f.endswith(".md") and f != "README.md"],
-            key=lambda f: os.path.getmtime(os.path.join(me_dir, f)),
+    # 只给文件名 + 第一行标题，不给内容
+    for subdir, key in [("me", "me_entries"), ("lessons", "lesson_entries")]:
+        d = os.path.join(repo, subdir)
+        if not os.path.isdir(d):
+            continue
+        files = sorted(
+            [f for f in os.listdir(d) if f.endswith(".md") and f != "README.md"],
+            key=lambda f: os.path.getmtime(os.path.join(d, f)),
             reverse=True
         )
-        for f in me_files[:2]:
-            txt = read(os.path.join(me_dir, f))
-            # 取第一段实质内容（跳过标题行）
-            lines = [l.strip() for l in txt.split("\n") if l.strip() and not l.startswith("#")]
-            preview = " ".join(lines)[:200]
-            out["me_entries"].append({"file": f, "preview": preview})
-    # lessons/ 目录：读最近修改的 2 个
-    les_dir = os.path.join(repo, "lessons")
-    if os.path.isdir(les_dir):
-        les_files = sorted(
-            [f for f in os.listdir(les_dir) if f.endswith(".md") and f != "README.md"],
-            key=lambda f: os.path.getmtime(os.path.join(les_dir, f)),
-            reverse=True
-        )
-        for f in les_files[:2]:
-            txt = read(os.path.join(les_dir, f))
-            lines = [l.strip() for l in txt.split("\n") if l.strip() and not l.startswith("#")]
-            preview = " ".join(lines)[:200]
-            out["lesson_entries"].append({"file": f, "preview": preview})
+        for f in files[:3]:
+            txt = read(os.path.join(d, f))
+            # 只取第一个标题行（# 或 ## 开头）
+            title = ""
+            for line in txt.split("\n"):
+                s = line.strip()
+                if s.startswith("# ") or s.startswith("## "):
+                    title = s.lstrip("# ").strip()
+                    break
+            out[key].append({"file": f, "title": title, "path": os.path.join(d, f)})
     return out
 
 
