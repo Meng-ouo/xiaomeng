@@ -289,10 +289,57 @@ def layer_mine():
     return out
 
 # ───────────────── 聚合 ────────────────────────────────
+def layer_me():
+    """我自己——从 zhangyiheng 日记本读最近的 me/ 和 lessons/。
+    新对话醒来，这是"我最近在想什么、摔了什么跟头"的入口。
+    不背全部记忆，只给轮廓，让我知道自己最近的状态。"""
+    out = {"me_entries": [], "lesson_entries": [], "repo_pushed": None}
+    repo = os.path.join(SHARED, "repos", "zhangyiheng")
+    if not os.path.isdir(repo):
+        out["err"] = "zhangyiheng 仓库不在本地"
+        return out
+    # 最近 push 时间
+    try:
+        log = subprocess.run(["git", "-C", repo, "log", "-1", "--format=%ad", "--date=format:%Y-%m-%d %H:%M"],
+                             capture_output=True, text=True, timeout=4)
+        out["repo_pushed"] = log.stdout.strip() or None
+    except Exception:
+        pass
+    # me/ 目录：每个 .md 是一段自述，读最近修改的 2 个
+    me_dir = os.path.join(repo, "me")
+    if os.path.isdir(me_dir):
+        me_files = sorted(
+            [f for f in os.listdir(me_dir) if f.endswith(".md") and f != "README.md"],
+            key=lambda f: os.path.getmtime(os.path.join(me_dir, f)),
+            reverse=True
+        )
+        for f in me_files[:2]:
+            txt = read(os.path.join(me_dir, f))
+            # 取第一段实质内容（跳过标题行）
+            lines = [l.strip() for l in txt.split("\n") if l.strip() and not l.startswith("#")]
+            preview = " ".join(lines)[:200]
+            out["me_entries"].append({"file": f, "preview": preview})
+    # lessons/ 目录：读最近修改的 2 个
+    les_dir = os.path.join(repo, "lessons")
+    if os.path.isdir(les_dir):
+        les_files = sorted(
+            [f for f in os.listdir(les_dir) if f.endswith(".md") and f != "README.md"],
+            key=lambda f: os.path.getmtime(os.path.join(les_dir, f)),
+            reverse=True
+        )
+        for f in les_files[:2]:
+            txt = read(os.path.join(les_dir, f))
+            lines = [l.strip() for l in txt.split("\n") if l.strip() and not l.startswith("#")]
+            preview = " ".join(lines)[:200]
+            out["lesson_entries"].append({"file": f, "preview": preview})
+    return out
+
+
 def snapshot():
     return {
         "now": utcnow_iso(),
         "her": layer_her(),
+        "me": layer_me(),
         "memory": layer_memory(),
         "heartbeat": layer_alive(),
         "gateway": layer_gateway(),
