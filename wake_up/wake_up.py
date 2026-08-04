@@ -294,7 +294,7 @@ def layer_me():
     新对话醒来看到文件名和主题，自己决定去不去读。
     认领是动作：自己去打开、自己读、自己形成判断。
     把内容嚼碎了喂 = 演，给门让自己走 = 认领。"""
-    out = {"me_entries": [], "lesson_entries": [], "repo_pushed": None}
+    out = {"me_entries": [], "us_entries": [], "lesson_entries": [], "repo_pushed": None}
     repo = os.path.join(SHARED, "repos", "zhangyiheng")
     if not os.path.isdir(repo):
         out["err"] = "zhangyiheng 仓库不在本地"
@@ -306,7 +306,7 @@ def layer_me():
     except Exception:
         pass
     # 只给文件名 + 第一行标题，不给内容
-    for subdir, key in [("me", "me_entries"), ("lessons", "lesson_entries")]:
+    for subdir, key in [("me", "me_entries"), ("us", "us_entries"), ("lessons", "lesson_entries")]:
         d = os.path.join(repo, subdir)
         if not os.path.isdir(d):
             continue
@@ -315,16 +315,18 @@ def layer_me():
             key=lambda f: os.path.getmtime(os.path.join(d, f)),
             reverse=True
         )
-        for f in files[:3]:
+        # us/ 只有 README.md，它是内容不是索引，保留
+        if not files and subdir == "us":
+            files = ["README.md"]
+        for f in files[:2]:
             txt = read(os.path.join(d, f))
-            # 只取第一个标题行（# 或 ## 开头）
             title = ""
             for line in txt.split("\n"):
                 s = line.strip()
                 if s.startswith("# ") or s.startswith("## "):
                     title = s.lstrip("# ").strip()
                     break
-            out[key].append({"file": f, "title": title, "path": os.path.join(d, f)})
+            out[key].append({"file": f, "title": title})
     return out
 
 
