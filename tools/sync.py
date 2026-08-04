@@ -40,6 +40,7 @@ XIAOMENG_MAP = {
     "checkon/checkon.py": "tools/checkon.py",
     "dispatch.py": "tools/dispatch.py",
     "preflight.py": "tools/preflight.py",
+    "postflight.py": "tools/postflight.py",
 }
 
 def run(cmd, cwd=None):
