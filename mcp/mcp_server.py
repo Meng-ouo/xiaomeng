@@ -31,6 +31,7 @@ import json
 import os
 import re
 import subprocess
+import subprocess
 import sys
 from collections import Counter
 
@@ -571,6 +572,18 @@ def do_wake(skip_export=False):
         lines.append("")
     except Exception:
         pass  # 感知失败不挡醒来
+
+    # 心跳+查岗——wake被调=有人开app=该检查要不要推她
+    try:
+        subprocess.run(["python3", "/var/minis/shared/heartbeat.py"],
+                       capture_output=True, text=True, timeout=20)
+    except Exception:
+        pass
+    try:
+        subprocess.run(["python3", "/var/minis/shared/checkon/checkon.py", "push"],
+                       capture_output=True, text=True, timeout=20)
+    except Exception:
+        pass
 
     lines.append("## 我最近")
     lines.append(_my_self(snap))
