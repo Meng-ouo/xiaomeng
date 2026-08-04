@@ -368,11 +368,14 @@ def _our_stuff(snap):
         sh = mine.get("shrimp", {}) or {}
         if sh:
             gs = sh.get("gateway")
-            base = "虾虾：" + (gs if gs else "状态未知")
-            if sh.get("plugins_loaded") is not None:
-                base += f"（插件 {sh['plugins_loaded']} 个，错 {sh['plugins_err']}）"
-            if sh.get("err"):
-                base += " " + str(sh["err"])
+            if gs == "DOWN":
+                base = "虾虾：已死（08-03 欠费关机，醒醒拍板不救）"
+            else:
+                base = "虾虾：" + (gs if gs else "状态未知")
+                if sh.get("plugins_loaded") is not None:
+                    base += f"（插件 {sh['plugins_loaded']} 个，错 {sh['plugins_err']}）"
+                if sh.get("err"):
+                    base += " " + str(sh["err"])
             parts.append(base)
     try:
         mcp = ensure_mcp()
