@@ -81,6 +81,7 @@ def sync_xiaomeng(dry=False):
         if src_md5 != dst_md5:
             changed.append(f"{src} → {dst}")
             if not dry:
+                os.makedirs(os.path.dirname(dst_path), exist_ok=True)
                 subprocess.run(f"cp '{src_path}' '{dst_path}'", shell=True)
     if not changed:
         print("  xiaomeng: 无改动")
