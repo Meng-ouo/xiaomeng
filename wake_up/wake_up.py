@@ -341,54 +341,35 @@ def snapshot():
         "assets": layer_assets(),
         "mine": layer_mine(),
     }
-# ───────────────── HTTP ────────────────────────────────
-from socketserver import ThreadingMixIn, TCPServer, BaseRequestHandler
+# ──────────────────────────────────────────────────────────
+# HTTP server — 用 http.server.HTTPServer（iSH 上跨进程 TCP 最可靠）
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
-def _handle(conn):
-    try:
-        body = json.dumps(snapshot(), ensure_ascii=False, indent=1)
-        conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n\r\n")
-        conn.sendall(body.encode("utf-8"))
-    except (ConnectionResetError, BrokenPipeError):
-        # 客户端断开（超时/取消）不是服务端错误，静默收尾，不拼 500
-        pass
-    except Exception as e:
-        try:
-            err = json.dumps({"error": str(e)}, ensure_ascii=False)
-            conn.sendall(b"HTTP/1.1 500\r\nContent-Type: application/json\r\n\r\n")
-            conn.sendall(err.encode("utf-8"))
-        except Exception:
-            pass
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
-
-class Handler(BaseRequestHandler):
-    def handle(self):
-        try:
-            data = self.request.recv(4096).decode("utf-8", "ignore")
-        except Exception:
-            data = ""
-        path = (data.split(" ", 2) or [""])[1] if data else ""
-        if path == "/api/wake-snapshot":
-            _handle(self.request)
-        else:
+class SnapHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/api/wake-snapshot":
+            body = json.dumps(snapshot(), ensure_ascii=False, indent=1).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
             try:
-                self.request.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
-            except Exception:
+                self.wfile.write(body)
+            except (ConnectionResetError, BrokenPipeError):
                 pass
-            self.request.close()
+        else:
+            self.send_response(404)
+            self.end_headers()
+    def log_message(self, *a):
+        pass
 
-class Svc(ThreadingMixIn, TCPServer):
+class Svc(HTTPServer):
     allow_reuse_address = True
-    daemon_threads = True
 
 if __name__ == "__main__":
     PORT = int(os.environ.get("WAKE_SNAPSHOT_PORT", "8797"))
     print(f"wake-snapshot listening on 127.0.0.1:{PORT}")
-    srv = Svc(("127.0.0.1", PORT), Handler)
+    srv = Svc(("127.0.0.1", PORT), SnapHandler)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

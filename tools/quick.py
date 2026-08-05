@@ -20,6 +20,21 @@ def check_file(path, name):
         age = f"{mins}min前" if mins < 60 else f"{mins//60}h前"
     return f"{'OK' if ok else 'DEAD'} {name} {age}"
 
+def check_snapshot(timeout=15):
+    """真的 curl 测 8797 端口——之前只看日志文件时间，进程死了日志还在，报假 OK"""
+    try:
+        r = subprocess.run(
+            f'curl -s -m {timeout} -o /dev/null -w "%{{http_code}}" '
+            f'http://127.0.0.1:8797/api/wake-snapshot',
+            shell=True, capture_output=True, text=True, timeout=timeout+5)
+        code = r.stdout.strip()
+        if code == "200":
+            return "OK snapshot 8797"
+        else:
+            return f"DEAD snapshot {code}（crontab 保活会拉起，5分钟后复查）"
+    except:
+        return "DEAD snapshot timeout"
+
 def check_gateway(timeout=3):
     """curl 测网关出字，不猜端口——直接打已知活着的地址"""
     key_path = os.path.join(SHARED, "gw/gateway_key.txt")
@@ -68,6 +83,22 @@ def check_env():
         results.append(f"{e}={'set' if val else 'MISS'}")
     return " ".join(results)
 
+def check_kiss(timeout=8):
+    """kiss.eoty.cn 可达性——带 key 测 API"""
+    key_path = os.path.join(SHARED, "gw/gateway_key.txt")
+    try:
+        key = open(key_path).read().strip()
+        r = subprocess.run(
+            f'curl -s -m {timeout} --resolve kiss.eoty.cn:80:198.11.180.51 '
+            f'http://kiss.eoty.cn/v1/models -H "Authorization: Bearer {key}" '
+            f'-o /dev/null -w "%{{http_code}}"',
+            shell=True, capture_output=True, text=True, timeout=timeout+3)
+        code = r.stdout.strip()
+        # 200=直通 301/308=HTTPS重定向（正常）
+        return f"{'OK' if code in ('200','301','307','308') else 'DEAD'} kiss {code}"
+    except:
+        return "DEAD kiss timeout"
+
 if __name__ == "__main__":
     t0 = time.time()
     print("快速自检")
@@ -75,8 +106,9 @@ if __name__ == "__main__":
     checks = [
         check_file(os.path.join(SHARED, "heartbeat_state.json"), "heartbeat"),
         check_file(os.path.join(SHARED, "checkon/state.json"), "checkon"),
-        check_file(os.path.join(SHARED, "wake_snapshot.log"), "snapshot"),
+        check_snapshot(),
         check_gateway(),
+        check_kiss(),
         check_cron(),
         check_mcp(),
     ]
