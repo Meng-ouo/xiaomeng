@@ -42,6 +42,10 @@ XIAOMENG_MAP = {
     "dispatch.py": "tools/dispatch.py",
     "preflight.py": "tools/preflight.py",
     "postflight.py": "tools/postflight.py",
+    "INVENTORY.md": "INVENTORY.md",
+    "drawers/README.md": "drawers/README.md",
+    "drawers/self/ASSETS.md": "drawers/self/ASSETS.md",
+    "tool-rules.md": "tool-rules.md",
 }
 
 def run(cmd, cwd=None):
