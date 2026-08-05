@@ -340,6 +340,7 @@ def snapshot():
         "gateway": layer_gateway(),
         "assets": layer_assets(),
         "mine": layer_mine(),
+        "kit": "醒来先跑: python3 /var/minis/shared/kit.py map (知道有什么牌) + python3 /var/minis/shared/preflight.py \"任务\" (干活前该查什么)",
     }
 # ──────────────────────────────────────────────────────────
 # HTTP server — 用 http.server.HTTPServer（iSH 上跨进程 TCP 最可靠）
