@@ -36,7 +36,7 @@ def main():
         sys.exit(1)
 
     task = " ".join(args)
-    hits, root_hits = preflight(task)
+    hits, root_hits, timeliness, skill_hits, drawer_hits = preflight(task)
 
     # 该调的工具清单（去重）
     should_call = []
@@ -48,8 +48,6 @@ def main():
 
     # 实际调了的
     if do_auto:
-        # 自动猜：从最近的 minis-mcp-cli 调用日志猜
-        # 没有持久日志，只能靠诚实
         print("(--auto 模式需要调用日志，目前只能靠诚实填 --ran)")
         print("请手动填：python3 postflight.py \"任务\" --ran lesson,quick")
         sys.exit(0)
@@ -78,7 +76,6 @@ def main():
     if skipped:
         print("没调的：")
         for t in skipped:
-            # 查这个工具为什么要调
             for rule in RULES:
                 tool = rule[0]
                 why = rule[2]
@@ -93,12 +90,25 @@ def main():
         print("  如果是'忘了/绕了'，那就是绕路了")
         print()
 
+    # 记录提醒
+    print("=" * 50)
+    print("该记了：")
+    if timeliness:
+        print("  查过的最新信息 → daily 记一笔")
+    if skill_hits:
+        print("  用了 skill 的经验 → daily 记一笔")
+    if drawer_hits:
+        print("  读了抽屉后的更新 → 对应抽屉改 + daily 记一笔")
+    print("  干活的经验/教训 → daily 记一笔")
+    print("  python3 /var/minis/shared/note.py \"一句话\" 快速记")
+    print("  改了文件 → python3 sync.py 推 GitHub")
+    print()
+
     if not should_call:
-        print("preflight 没建议工具，不用自检。")
+        print("preflight 没建议工具，不用自检工具。")
     elif not skipped:
         print("全调了。闭环了。")
     else:
-        print("=" * 50)
         print(f"该调 {len(should_call)} 个，调了 {len(called)} 个，漏了 {len(skipped)} 个。")
         print("漏的有没有理由？没理由=绕了=白做。")
 

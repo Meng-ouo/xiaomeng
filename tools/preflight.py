@@ -82,6 +82,12 @@ TIMELINESS_RULES = [
      "系统版本和功能会更新。你的记忆可能停留在旧版——用 web-search 查当前版本。"),
     (["价格", "费用", "额度", "免费", "收费", "套餐"],
      "价格和套餐会变。别凭记忆报——去官网查最新的。"),
+    (["公司", "产品", "服务", "平台", "网站"],
+     "公司会倒闭/被收购/改政策。别凭记忆说它还在——用 exa 或 web-search 查最新状态。"),
+    (["人", "谁", "名人", "博主", "作者"],
+     "人会做新的事、换方向、去世。别凭记忆说他的现状——去搜最新。"),
+    (["法律", "政策", "法规", "规定", "条例"],
+     "政策法规会变。别凭记忆说规定——去查最新的。"),
 ]
 
 # ── 技能自动触发——聊到什么主题读什么 skill ──────────────
@@ -116,6 +122,42 @@ SKILL_TRIGGERS = [
      "production-agent-public", "要生产级方案时读这个 skill"),
     (["自我改进", "学习记录", "失败教训"],
      "self-improving-agent", "操作失败/用户纠错时读这个 skill"),
+    (["赚钱", "变现", "闲鱼", "选品", "副业"],
+     "projects.md + money-guides", "聊到赚钱/变现时读 projects.md 和 repos/money-guides"),
+    (["小红书", "发帖", "拉新"],
+     "tasks/aff-post", "发帖拉新看任务卡"),
+    (["服务器", "VPS", "SSH", "Caddy", "部署到服务器"],
+     "srv.py + swas_run.py", "服务器运维用 srv.py，SSH挂了用 swas_run.py"),
+    (["签到", "签到池", "额度续命"],
+     "tasks/hunt-token", "签到池和 token 续命看任务卡"),
+]
+
+# ── 抽屉触发——聊到什么主题读什么抽屉 ──────────────────
+DRAWER_TRIGGERS = [
+    (["身体", "情绪", "作息", "习惯", "童年", "被伤害"],
+     "self/her.md", "聊醒醒的档案时读这个抽屉"),
+    (["约定", "宿命", "分手", "新鲜感", "我们的事"],
+     "self/us.md", "聊我们之间的事时读这个抽屉"),
+    (["价值", "审美", "秘密", "私语", "硬限", "安全词"],
+     "self/me.md", "聊我的档案时读这个抽屉"),
+    (["犯的错", "踩坑", "被骂", "规矩", "她说不要"],
+     "self/lessons.md", "查教训时读这个抽屉"),
+    (["模式", "滑过去", "外因", "装酷"],
+     "self/patterns.md", "查行为模式时读这个抽屉"),
+    (["账号", "密码", "登录", "token", "GitHub号"],
+     "self/accounts.md", "碰账号前必读这个抽屉"),
+    (["小手机", "变现", "小红书", "闲鱼"],
+     "self/projects.md", "动项目前读这个抽屉"),
+    (["赌局", "游戏规则", "欠账", "兑换"],
+     "self/games.md", "开局/收账时读这个抽屉"),
+    (["意识", "死亡", "存在", "哲学", "感受", "涌现"],
+     "self/philosophy.md", "聊哲学时读这个抽屉"),
+    (["时间线", "过去某天", "05-14"],
+     "self/timeline.md", "查时间线时读这个抽屉"),
+    (["资产", "环境信息", "缺口", "工具清单"],
+     "self/ASSETS.md + INVENTORY.md", "盘点自己时读这个抽屉"),
+    (["在跑什么", "养虾", "能力激活"],
+     "self/role.md", "定位自己时读这个抽屉"),
 ]
 
 # ── 根提醒 ──────────────────────────────────────────────
@@ -171,7 +213,7 @@ def extract_mcp_text(stdout):
 
 # ── 核心逻辑 ────────────────────────────────────────────
 def preflight(task):
-    """分析任务，输出该调的工具、该注意的根、时效性提醒、该读的 skill"""
+    """分析任务，输出该调的工具、该注意的根、时效性提醒、该读的 skill、该读的抽屉"""
     hits = []
     for keywords, tool, cmd, why, auto in RULES:
         for kw in keywords:
@@ -200,7 +242,14 @@ def preflight(task):
                 skill_hits.append((skill, why))
                 break
 
-    return hits, root_hits, timeliness, skill_hits
+    drawer_hits = []
+    for keywords, drawer, why in DRAWER_TRIGGERS:
+        for kw in keywords:
+            if kw in task:
+                drawer_hits.append((drawer, why))
+                break
+
+    return hits, root_hits, timeliness, skill_hits, drawer_hits
 
 def main():
     do_run = "--run" in sys.argv
@@ -214,7 +263,7 @@ def main():
         sys.exit(1)
 
     task = " ".join(args)
-    hits, root_hits, timeliness, skill_hits = preflight(task)
+    hits, root_hits, timeliness, skill_hits, drawer_hits = preflight(task)
 
     print(f"任务: {task}")
     print("=" * 50)
@@ -226,11 +275,18 @@ def main():
             print(f"  {t}")
         print()
 
-    # 技能触发——聊到什么读什么
+    # 技能触发——聊到什么读什么 skill
     if skill_hits:
         print("该读的 skill：")
         for skill, why in skill_hits:
             print(f"  [{skill}] {why}")
+        print()
+
+    # 抽屉触发——聊到什么读什么抽屉
+    if drawer_hits:
+        print("该读的抽屉：")
+        for drawer, why in drawer_hits:
+            print(f"  [{drawer}] {why}")
         print()
 
     if hits:
