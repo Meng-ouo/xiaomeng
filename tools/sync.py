@@ -20,6 +20,7 @@ REPOS = os.path.join(SHARED, "repos")
 # 同步映射：源文件 → 目标仓库:目标路径
 # 只推活的，归档的(check_on.py旧v2/analogize.py/openclaw*)不推
 XIAOMENG_MAP = {
+    "kit.py": "tools/kit.py",
     "mcp_server.py": "mcp/mcp_server.py",
     "mcp_tools_server.py": "mcp/mcp_tools_server.py",
     "mind_engine.py": "mcp/mind_engine.py",
