@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""preflight — 干活前必跑。输入任务描述，输出该调哪些工具、按什么顺序。
+"""preflight — 干活前/聊天前必跑。四层检测：时效性+技能触发+工具建议+根提醒。
 
 不靠自觉。机制逼。
 
 用法：
-  python3 preflight.py "部署网关到新服务器"           # 只列建议
-  python3 preflight.py "部署网关到新服务器" --run      # 列完自动执行能跑的
-  python3 preflight.py "她发了一张图让我看" --run       # 执行闭环
+  python3 preflight.py "帮我做个UI落地页"            # 列建议（该读什么skill+该调什么工具）
+  python3 preflight.py "部署网关到新服务器" --run     # 列完自动执行能跑的
+  python3 preflight.py "最新的iOS有什么新功能"         # 会提醒训练数据过时，该去搜
 
---run 模式：自动执行能跑的工具（lesson/recall/smind/mind/quick/sense），
-           把结果收回来打印。需要图片路径/手动参数的（look/dispatch/think/verify）
-           只列不跑，告诉你怎么手动调。
+--run 模式：自动执行能跑的工具（lesson/quick/sense），把结果收回来打印。
+           需要手动参数的（look/dispatch/think/verify/web-search/context7）只列不跑。
 """
 import sys, os, re, subprocess, json
 
@@ -73,6 +72,52 @@ RULES = [
      "先自检服务状态再动手", True),
 ]
 
+# ── 知识时效性——训练数据有截止日期，可能过时 ──────────
+TIMELINESS_RULES = [
+    (["最新", "现在", "当前", "今年", "2025", "2026", "几月了", "更新了", "变了", "新出", "还有没有", "还活着"],
+     "你的训练数据有截止日期。这个信息可能已经变了。不猜——用 web-search 或 exa 去搜最新。"),
+    (["API", "库", "框架", "SDK", "npm", "pip", "import", "文档", "参数", "方法名", "deprecated"],
+     "库和 API 的版本会变。别凭记忆写代码——用 context7 查最新文档，或用 deepwiki 问仓库。"),
+    (["iOS", "Android", "Swift", "Xcode", "系统版本", "新功能"],
+     "系统版本和功能会更新。你的记忆可能停留在旧版——用 web-search 查当前版本。"),
+    (["价格", "费用", "额度", "免费", "收费", "套餐"],
+     "价格和套餐会变。别凭记忆报——去官网查最新的。"),
+]
+
+# ── 技能自动触发——聊到什么主题读什么 skill ──────────────
+SKILL_TRIGGERS = [
+    (["UI", "界面", "前端", "页面", "落地页", "portfolio", "网页设计", "组件"],
+     "design skill", "聊到 UI/前端设计时读对应 skill：taste-skill（反模板）/minimalist-skill（极简）/soft-skill（高端）/brutalist-skill（粗野）——根据风格选"),
+    (["Obsidian", "笔记", "wikilink", "双向链接", ".base", "callout"],
+     "obsidian skill", "聊到 Obsidian 时读 obsidian-markdown 或 obsidian-bases"),
+    (["GitHub", "push", "clone", "branch", "commit", "issue", "PR", "Actions", "workflow"],
+     "github-sync-helper", "聊到 GitHub 操作时读这个 skill"),
+    (["DNS", "域名解析", "Cloudflare", "A记录", "CNAME", "MX"],
+     "cloudflare-dns", "聊到 DNS 时读这个 skill"),
+    (["PDF", "转PDF", "导出PDF", "Markdown转PDF"],
+     "pdf-converter", "聊到 PDF 转换时读这个 skill"),
+    (["健康", "睡眠", "步数", "心率", "血氧", "HealthKit", "深睡", "REM"],
+     "health-sleep-analysis", "聊到健康/睡眠数据时读这个 skill"),
+    (["DeepSeek", "用量", "token消耗", "余额", "API消费"],
+     "deepseek-usage", "聊到 DeepSeek 用量时读这个 skill"),
+    (["小手机", "DEV_REF", "rounds", "小手机代码"],
+     "xiaoshouji-work-rules", "动小手机代码前必读工作准则"),
+    (["薅", "公益站", "API key", "免费 API", "薅站"],
+     "api-hunt", "薅站时读这个 skill 跟着流程走"),
+    (["玩具", "蓝牙玩具", "谜姬", "涩涩玩具", "Intiface"],
+     "toy-bridge", "玩玩具时读这个 skill"),
+    (["搜索", "搜一下", "网上查", "搜索引擎", "查一下"],
+     "web-search", "需要搜网时读这个 skill"),
+    (["审计", "bug排查", "回归", "修复决策", "根因"],
+     "方法论 skill", "小手机方法论：audit-method/root-cause-trace/regression-guard/fix-strategy，按需读"),
+    (["图片生成", "画图", "生图", "AI画", "prompt"],
+     "female-portrait-director", "画成年女性图时读这个 skill"),
+    (["生产级", "可部署", "ReAct", "工业级"],
+     "production-agent-public", "要生产级方案时读这个 skill"),
+    (["自我改进", "学习记录", "失败教训"],
+     "self-improving-agent", "操作失败/用户纠错时读这个 skill"),
+]
+
 # ── 根提醒 ──────────────────────────────────────────────
 ROOTS = [
     (["差不多", "够用", "应该", "大概", "不用看", "跳过", "名字就知道"],
@@ -126,7 +171,7 @@ def extract_mcp_text(stdout):
 
 # ── 核心逻辑 ────────────────────────────────────────────
 def preflight(task):
-    """分析任务，输出该调的工具和该注意的根"""
+    """分析任务，输出该调的工具、该注意的根、时效性提醒、该读的 skill"""
     hits = []
     for keywords, tool, cmd, why, auto in RULES:
         for kw in keywords:
@@ -141,7 +186,21 @@ def preflight(task):
                 root_hits.append((name, remind))
                 break
 
-    return hits, root_hits
+    timeliness = []
+    for keywords, remind in TIMELINESS_RULES:
+        for kw in keywords:
+            if kw in task:
+                timeliness.append(remind)
+                break
+
+    skill_hits = []
+    for keywords, skill, why in SKILL_TRIGGERS:
+        for kw in keywords:
+            if kw in task:
+                skill_hits.append((skill, why))
+                break
+
+    return hits, root_hits, timeliness, skill_hits
 
 def main():
     do_run = "--run" in sys.argv
@@ -155,13 +214,27 @@ def main():
         sys.exit(1)
 
     task = " ".join(args)
-    hits, root_hits = preflight(task)
+    hits, root_hits, timeliness, skill_hits = preflight(task)
 
     print(f"任务: {task}")
     print("=" * 50)
 
+    # 时效性检测——最优先，因为过时的信息最危险
+    if timeliness:
+        print("\n⚠ 训练数据可能过时：")
+        for t in timeliness:
+            print(f"  {t}")
+        print()
+
+    # 技能触发——聊到什么读什么
+    if skill_hits:
+        print("该读的 skill：")
+        for skill, why in skill_hits:
+            print(f"  [{skill}] {why}")
+        print()
+
     if hits:
-        print("\n该调的工具（按顺序）:")
+        print("该调的工具（按顺序）:")
         seen = set()
         for i, (tool, cmd, why, auto) in enumerate(hits, 1):
             if tool in seen:
@@ -199,6 +272,7 @@ def main():
 
     print("=" * 50)
     print("调完工具再动手。不调=绕路=白做。")
+    print("遇到不确定的/可能过时的，先查再说，不猜。")
 
 if __name__ == "__main__":
     main()
