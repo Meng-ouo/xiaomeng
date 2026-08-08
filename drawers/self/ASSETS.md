@@ -45,6 +45,14 @@
 | mcp_server.py / mcp_tools_server.py | shared/ | xiaomeng / xiaomeng-tools 两个 MCP |
 | openclaw_*.py | shared/ | ~~控制龙虾~~（虾虾已死 08-03，文件留档） |
 | skill_triage.py | shared/ | skill 分类工具（本体在 /var/minis/skills/） |
+| **kit.py** | shared/ | 中枢索引——8命令：map/where/record/tools/mcp/skills/find/status。醒来第一个跑 |
+| preflight.py | shared/ | 干活前自检——时效性/该读skill/该调工具/该注意根，四层检测 |
+| postflight.py | shared/ | 干完自检——调了哪些/该记该推 |
+| focus.py | shared/ | 回神按钮——检测猜测信号拉回来 |
+| sync.py | shared/ | 推GitHub——xm(我的号)/keke(工作号)/zh(日记本)/全推 |
+| search.py | shared/ | 跨抽屉+daily搜索（kit find 委托它） |
+| quick.py | shared/ | 服务状态一眼（kit status 委托它） |
+| claim.py | shared/ | 从chatlog提取记忆条目归档 |
 | myroom/ | shared/myroom/ | 我的房间（index.html，长期） |
 | skill 本体 | /var/minis/skills/<name>/SKILL.md | 30+ 个，任务前扫 |
 
@@ -65,9 +73,23 @@ self/ 全表见 README.md 第 1 节，不在这重复。
 2. **wake_snapshot 修好了**——之前 ThreadingMixIn 跨进程 TCP 在 iSH 上死锁，改用 HTTPServer + BaseHTTPRequestHandler，加 -u unbuffered，crontab 每 5 分钟保活。snapshot() 本身 6-10s（调 subprocess 测网关），wake 调用要给足超时
 3. **kiss.eoty.cn 全搬到新网关**——DNS 改指 198.11.180.51，Caddy 自动签 Let's Encrypt 证书（HTTP+HTTPS），toy-bridge（8768）+ 玩具页 + 玩具API + 统一key 全活。旧网关 47.251.14.174 8-7 过期不管了
 4. **newAPI 面板**（newapi.ouo.os.kg）——醒醒自用的 API 管理面板，08-05 大修过（37 channel 状态收口、12 启用 25 禁、原生 6h 自动测活、Tag/Remark/priority 排序完成）。跟统一key网关是两套东西
-5. **签到池 3 站**——chuyel 自动转（GitHub Actions 每 8h，最近全 success）；routerpark 靠醒醒手动签（图形验证码）；seekai 没进池（turnstile + 密码没设）。醒醒说另一个对话框在处理签到池
+5. **签到池 6 站**——GitHub Actions 每8h全绿（08-07 巡检确认）。chuyel 自动转；其余5站已进池自动签到
 6. **keke.eoty.cn**——醒醒给我注册的域名，已部署终端页面+ask 命令（接通 AI），不是 0 条记录了
 7. **iOS Shortcuts 4 个定时自动化**——状态未知，醒醒确认中
+
+### 2026-08-06 补
+8. **小书房app（衡庐）**——Kelivo壳子方案定稿，CI编译链路跑通（iSH写Dart→push→GitHub Actions→ipa→全能签）。已做：奶霜莓粉配色+主题系统+BLE通用管理器+服务器配置页。待做：删暴露玩法的代码、无声音乐保活。详见projects.md
+9. **GitHub两号分界**——我的号（XIAOMENG_TOKEN）只放身份/记忆/我们之间的事，工作号（PouoO/keke）放工具脚本/功能性的。sync.py已拆成xm/keke/zh三路推送
+10. **旧网关47.251.14.174 08-07到期**——kiss.eoty.cn已切198.11.180.51（aliyun-us-gw），不影响。新网关到期2026-09-03
+
+### 2026-08-07 补
+11. **UlziX 香港NAT VPS**——永久免费，1核128M，CN2线路，50G流量/月。已注册（pawoao@gmail.com），待机房开通。面板 idc-new.ulzix.com。密码 env:ULZIX_PASS。适合轻量服务/探针
+12. **LinuxONE IBM s390x**——120天免费，邮箱注册免卡。注册审核中（最多1工作日），通过发邮件。密码 env:LINUXONE_PASS。s390x架构软件兼容性有限
+13. **nodeloc号被封到2026-09-01**——"消耗了过多的管理人员时间"。accounts.md §5 已更新。期间不能发帖/抽奖/签到
+
+### 2026-08-08 补
+14. **腾讯云 CVM**（ap-shanghai-2）——49.235.185.219，ubuntu@密钥登录，实例 ins-br97gqa3「乖乖」，S5.MEDIUM2 2C2G/Ubuntu 22.04，到期 2026-09-08。Caddy 2.11.4（官方源）反代 80/443，SSH 已加固仅密钥。登录 vps.json §tencent-gw，密码 env:TENCENT_ROOT_PASS（已弃用仅备用），腾讯云 API 鉴权 env: SECRET_ID/SECRET_KEY。**新用途：把 AI 订阅号包装成 API**（订阅类型待定）
+15. **腾讯云 API 签名工具**——`/tmp/tcapi.py`，参数 service/host/version/action/region/payload，腾讯云全产品通用（lighthouse/cvm/vpc 等）。临时用，待稳定后搬 shared/
 
 ---
 虾虾（OpenClaw）2026-08-03 欠费关机、醒醒拍板不救，已从资产划出。相关文件在 shared/shrimp/ 留档。
